@@ -1,0 +1,70 @@
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { answer, SUGGESTIONS, type AdvisorContext } from "../lib/advisor";
+
+interface Msg {
+  who: "me" | "bot";
+  text: string;
+}
+
+export function Chat({ ctx }: { ctx: AdvisorContext }) {
+  const [msgs, setMsgs] = useState<Msg[]>(() => [
+    { who: "bot", text: `안녕하세요. ${ctx.pick.a.name} + ${ctx.pick.b.name} 조합으로 로드맵을 만들었어요. 궁금한 걸 물어보세요.` },
+    { who: "me", text: "이번 학기에 뭐 해야 해?" },
+    { who: "bot", text: answer("이번 학기에 뭐 해야 해?", ctx) },
+  ]);
+  const [input, setInput] = useState("");
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (box.current) box.current.scrollTop = box.current.scrollHeight;
+  }, [msgs]);
+
+  function ask(q: string) {
+    const text = q.trim();
+    if (!text) return;
+    setMsgs((m) => [...m, { who: "me", text }, { who: "bot", text: answer(text, ctx) }]);
+  }
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    ask(input);
+    setInput("");
+  }
+
+  return (
+    <section className="panel on" id="p-chat">
+      <div className="panel-head">
+        <div>
+          <h2>AI 상담</h2>
+          <p>내 추천 결과와 로드맵을 근거로 답합니다. 지금은 규칙 기반 응답이고, 본 개발에서 LLM과 학교 공식 자료 검색을 연결합니다.</p>
+        </div>
+      </div>
+      <div className="chat card">
+        <div className="msgs" ref={box} aria-live="polite">
+          {msgs.map((m, k) => (
+            <div key={k} className={`msg ${m.who}`}>
+              {m.who === "bot" && <span className="who">트랙 나침반</span>}
+              {m.text}
+            </div>
+          ))}
+        </div>
+        <div className="suggest">
+          {SUGGESTIONS.map((s, k) => (
+            <button key={s} id={`sg-${k}`} type="button" className="chip" onClick={() => ask(s)}>
+              {s}
+            </button>
+          ))}
+        </div>
+        <form className="ask" onSubmit={submit}>
+          <label htmlFor="askInput" className="sr-only">
+            질문 입력
+          </label>
+          <input id="askInput" autoComplete="off" value={input} onChange={(e) => setInput(e.target.value)} placeholder="예: 빅데이터트랙으로 바꾸면 어떻게 돼?" />
+          <button className="btn" type="submit">
+            보내기
+          </button>
+        </form>
+      </div>
+    </section>
+  );
+}
