@@ -81,6 +81,9 @@ npm install
 npm run dev      # 개발 서버 (http://localhost:5173/track-compass/)
 npm test         # 추천 규칙·로드맵·상담 테스트
 npm run build    # 타입 검사 후 dist/ 생성
+npm run build:file   # dist/를 HTML 파일 하나로 합침 → release/트랙나침반_eAdvisor.html
 ```
+
+`release/트랙나침반_eAdvisor.html`은 서버 없이 더블클릭만으로 실행되는 제출용 파일입니다.
 
 `main` 브랜치에 푸시하면 GitHub Actions가 테스트·빌드 후 GitHub Pages에 자동 배포합니다.
