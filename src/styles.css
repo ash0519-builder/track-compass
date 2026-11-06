@@ -201,3 +201,31 @@ dl.rules dd { margin: 0; color: var(--ink); }
   .row4 { grid-template-columns: 1fr 1fr; }
   .row4 label:first-child { grid-column: 1 / -1; }
 }
+.item.x.auto { border-left-style: dashed; }
+.card.want { display: grid; gap: 10px; margin-bottom: 12px; }
+.picked-sum { font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.theme-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 14px; }
+.tab-chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13.5px; }
+.tab-chip[aria-selected="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.tab-chip .cnt { font-size: 11.5px; opacity: .7; font-variant-numeric: tabular-nums; }
+.open-only { margin-left: auto; font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.prog-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.card.prog { display: flex; flex-direction: column; gap: 6px; }
+.card.prog.picked { border-color: var(--extra); box-shadow: 0 0 0 1px var(--extra); }
+.prog h3 { margin: 0; font-size: 15px; line-height: 1.45; word-break: keep-all; overflow-wrap: anywhere; }
+.prog-top { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.prog-top .rank { font-weight: 600; color: var(--muted); }
+.prog-top .pts { margin-left: auto; font-weight: 700; color: var(--extra); font-variant-numeric: tabular-nums; }
+.status { padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+.status.open { background: var(--good); border-color: var(--good); color: var(--surface); }
+.status.running { color: var(--accent); border-color: var(--accent); }
+.prog .meta { margin: 0; font-size: 12.5px; color: var(--muted); }
+.prog .why { margin: 2px 0 0; font-size: 13px; }
+.theme-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.ttag { font-size: 11.5px; padding: 1px 8px; border-radius: 99px; background: var(--extra-soft); color: var(--extra); }
+.prog-actions { margin-top: auto; padding-top: 6px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
+.prog-actions select { padding: 6px 8px; }
+.prog-actions .btn { padding: 7px 12px; font-size: 13.5px; }
+.prog-actions a { margin-left: auto; color: var(--accent); }
+.btn.more { margin: 14px auto 0; display: block; }
+@media (max-width: 560px) { .open-only { margin-left: 0; } .prog-list { grid-template-columns: 1fr; } }

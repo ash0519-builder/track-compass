@@ -60,6 +60,8 @@ export interface Profile {
   interests: string[];
   jobs: string[];
   strengths: string[];
+  /** 비교과로 키우고 싶은 분야 (비교과 카테고리 id) */
+  extraThemes?: string[];
 }
 
 export interface Combo {
@@ -85,6 +87,10 @@ export interface PlanItem {
   req?: Req;
   /** 포인트가 공개되지 않았거나 최대값인 경우 */
   unitLabel?: string;
+  /** 스마트자기관리시스템 프로그램 번호 */
+  programId?: number;
+  /** 학생이 담지 않았고 앱이 추천해서 넣은 항목 */
+  auto?: boolean;
 }
 
 export type Roadmap = PlanItem[][];
@@ -93,6 +99,8 @@ export interface AppState {
   profile: Profile;
   pick: [string, string] | null;
   checks: Record<string, true>;
+  /** 로드맵에 담은 비교과 프로그램: 프로그램 id → 학기 인덱스(0~7) */
+  extraPicks?: Record<string, number>;
   /** 스마트자기관리시스템에서 확인한 실제 누적 비교과포인트 (입력 시 우선) */
   myPoints: number | null;
   sample: boolean;

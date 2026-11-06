@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { ENTRIES, findEntry, TAG_LABELS, TAG_LIMITS, TAGS, type TagGroup } from "../data/tracks";
+import { THEMES } from "../lib/programs";
 import type { DayNight, Profile } from "../types";
 
 const GROUPS: TagGroup[] = ["interests", "jobs", "strengths"];
@@ -100,6 +101,30 @@ export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p
             </div>
           </fieldset>
         ))}
+
+        <fieldset>
+          <legend>
+            비교과로 키우고 싶은 분야<small>선택 · 최대 3개</small>
+          </legend>
+          <div className="chips">
+            {THEMES.filter((t) => t.id !== "major").map((t) => {
+              const cur = draft.extraThemes ?? [];
+              const on = cur.includes(t.id);
+              return (
+                <button
+                  type="button"
+                  key={t.id}
+                  id={`chip-theme-${t.id}`}
+                  className="chip"
+                  aria-pressed={on}
+                  onClick={() => setDraft({ ...draft, extraThemes: on ? cur.filter((x) => x !== t.id) : [...cur, t.id].slice(-3) })}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
 
         <div className="actions">
           <button type="submit" className="btn" id="diagSubmit" disabled={!ok}>

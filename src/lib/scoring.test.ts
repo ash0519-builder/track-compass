@@ -93,3 +93,35 @@ test("진행률과 상담 응답", () => {
   assert.match(answer("졸업하려면 뭐가 필요해?", ctx), /130학점/);
   assert.match(answer("비교과 포인트 얼마나 남았어?", { ...ctx, state: { ...state, myPoints: 300 } }), /300pt, 졸업까지 500pt/);
 });
+
+test("비교과 추천: 영어를 고르면 영어·외국어 프로그램이 상위에 온다", async () => {
+  const { recommendPrograms } = await import("./programs");
+  const p: Profile = { ...P, extraThemes: ["english"] };
+  const recs = recommendPrograms(p, combos(p)[0]);
+  const top10 = recs.slice(0, 10);
+  assert.ok(top10.filter((r) => r.themes.includes("english")).length >= 5, top10.map((r) => r.p.t).join(" / "));
+});
+
+test("비교과 추천: 담은 프로그램과 추천 프로그램이 로드맵에 들어간다", async () => {
+  const { recommendPrograms } = await import("./programs");
+  const c = combos(P)[0];
+  const recs = recommendPrograms(P, c);
+  const pickId = recs[0].p.id;
+  const rm = buildRoadmap(c, P, { picks: { [String(pickId)]: 4 }, recs, now: 1 });
+  assert.ok(rm[4].some((it) => it.programId === pickId && !it.auto));
+  assert.ok(rm[2].some((it) => it.auto));
+  assert.ok(!rm[0].some((it) => it.auto));
+  const ids = rm.flat().filter((it) => it.programId).map((it) => it.programId);
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+test("상담: 영어 비교과 질문에 프로그램을 답한다", async () => {
+  const { recommendPrograms } = await import("./programs");
+  const c = combos(P)[0];
+  const recs = recommendPrograms(P, c);
+  const rm = buildRoadmap(c, P);
+  const state: AppState = { profile: P, pick: [c.a.name, c.b.name], checks: {}, myPoints: null, sample: true };
+  const out = answer("영어 관련 비교과 추천해줘", { state, pick: c, top: [c], roadmap: rm, recs });
+  assert.match(out, /영어·외국어/);
+  assert.match(answer("왜 이 조합을 추천했어?", { state, pick: c, top: [c], roadmap: rm, recs }), /지금 조합은/);
+});

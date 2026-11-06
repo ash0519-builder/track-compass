@@ -1,5 +1,6 @@
 import { EXTRA_PLAN, GRAD, IMAGINANCE_FREE_ALT, LIBERAL_REQUIRED } from "../data/rules";
 import { findEntry } from "../data/tracks";
+import { findProgram, type Scored } from "./programs";
 import type { AppState, Combo, Course, ItemKind, PlanItem, Profile, Roadmap, Track } from "../types";
 
 const REQ_LABEL = { 기: "전공기초", 필: "전공필수", 선: "전공선택" } as const;
@@ -48,7 +49,18 @@ export function planTrack(t: Track, taken: Set<string>, basicSem: number): Track
   return { items, credits, short: credits < GRAD.perTrack };
 }
 
-export function buildRoadmap(c: Combo, p: Profile): Roadmap {
+export interface ExtraOptions {
+  /** 학생이 담은 프로그램: id → 학기 */
+  picks?: Record<string, number>;
+  /** 추천 순위 (빈 학기를 채울 때 사용) */
+  recs?: Scored[];
+  /** 지금 학기 인덱스. 이 학기부터 빈 학기에 추천 비교과를 채운다 */
+  now?: number;
+  /** 빈 학기마다 채울 추천 개수 */
+  perSemester?: number;
+}
+
+export function buildRoadmap(c: Combo, p: Profile, opts: ExtraOptions = {}): Roadmap {
   const sems: PlanItem[][] = Array.from({ length: 8 }, () => []);
   const push = (sem: number, kind: ItemKind, name: string, unit: number, sub: string, extra: Partial<PlanItem> = {}) => {
     const s = Math.min(7, Math.max(0, sem));
@@ -82,8 +94,33 @@ export function buildRoadmap(c: Combo, p: Profile): Roadmap {
   // 트랙 선택 신청 (2학년 진학 전)
   push(1, "m", "제1·제2트랙 선택 신청", 0, "학사 공지 일정 확인 (종합정보시스템)", { unitLabel: "신청" });
 
-  // 비교과
+  // 비교과: 학교 공통 일정
   for (const x of EXTRA_PLAN) push(x.sem, "x", x.name, x.pts, x.sub, { unitLabel: x.pts ? undefined : x.label });
+
+  // 비교과: 학생이 담은 프로그램
+  const picks = opts.picks ?? {};
+  const used = new Set<number>();
+  for (const [id, sem] of Object.entries(picks)) {
+    const prog = findProgram(Number(id));
+    if (!prog) continue;
+    used.add(prog.id);
+    push(sem, "x", prog.t, prog.p, `${prog.o} · ${prog.c2}`, { programId: prog.id, unitLabel: prog.p ? undefined : "공지 확인" });
+  }
+
+  // 비교과: 담은 프로그램이 없는 학기는 추천 상위 프로그램으로 채움
+  if (opts.recs) {
+    const per = opts.perSemester ?? 2;
+    const from = Math.max(0, opts.now ?? 0);
+    const pickedSems = new Set(Object.values(picks));
+    const queue = opts.recs.filter((r) => !used.has(r.p.id) && r.p.p > 0 && r.score > 0);
+    for (let s = from; s < 8; s++) {
+      if (pickedSems.has(s)) continue;
+      for (let k = 0; k < per && queue.length; k++) {
+        const r = queue.shift()!;
+        push(s, "x", r.p.t, r.p.p, `추천 · ${r.p.o} · ${r.p.c2}`, { programId: r.p.id, auto: true });
+      }
+    }
+  }
 
   const order: Record<ItemKind, number> = { m: 0, a: 1, b: 2, g: 3, x: 4 };
   return sems.map((items) => items.sort((m, n) => order[m.kind] - order[n.kind]));

@@ -3,6 +3,7 @@ import { COLLEGES, findEntry, SEM_NAMES, TRACKS } from "../data/tracks";
 import type { AppState, Combo, Roadmap } from "../types";
 import { eul, eun } from "./korean";
 import { nowIndex, progress, unitText } from "./roadmap";
+import { statusOf, THEMES, type Scored } from "./programs";
 import { comboNotes, firstCandidates, fit, makeCombo, reasonLines, toPoints } from "./scoring";
 
 export interface AdvisorContext {
@@ -10,12 +11,14 @@ export interface AdvisorContext {
   pick: Combo;
   top: Combo[];
   roadmap: Roadmap;
+  recs?: Scored[];
 }
 
 export const SUGGESTIONS = [
   "왜 이 조합을 추천했어?",
   "이번 학기에 뭐 해야 해?",
   "비교과 포인트 얼마나 남았어?",
+  "영어 관련 비교과 추천해줘",
   "빅데이터트랙으로 바꾸면 어떻게 돼?",
   "졸업하려면 뭐가 필요해?",
   "1트랙은 어디서 골라야 해?",
@@ -33,6 +36,9 @@ export function answer(q: string, ctx: AdvisorContext): string {
   const now = nowIndex(p);
 
   const named = TRACKS.filter((t) => q.includes(t.name) || q.includes(t.name.replace(/(트랙|학과)$/, ""))).sort((m, n) => n.name.length - m.name.length)[0];
+
+  const themeAsked = THEMES.find((t) => q.includes(t.label.split("·")[0]) || (t.id === "english" && /영어|외국어|어학/.test(q)));
+  const asksPrograms = !!ctx.recs && (/비교과|프로그램/.test(q) || !!themeAsked) && !/조합|포인트|pt|남았|졸업/.test(q);
 
   if (/바꾸|변경|바꿔|대신/.test(q) || (named && named !== c.a && named !== c.b)) {
     if (!named) {
@@ -76,7 +82,7 @@ export function answer(q: string, ctx: AdvisorContext): string {
     return `${entry.name} 입학생은 제1트랙을 학부 안에서 골라야 해요 (${p.day} 기준 ${list.length}개): ${list.join(", ")}.\n제2트랙은 다른 단과대학에서도 자유롭게 고를 수 있어요.`;
   }
 
-  if (/왜|이유|추천/.test(q)) {
+  if (/왜|이유|추천/.test(q) && !asksPrograms) {
     return [
       `지금 조합은 ${c.a.name} + ${c.b.name}이고 ${toPoints(c.total)}점이에요.`,
       ...reasonLines(c, p).map((l) => `• ${l}`),
@@ -90,6 +96,16 @@ export function answer(q: string, ctx: AdvisorContext): string {
     const todo = rm[now].filter((it) => !state.checks[it.id]);
     if (!todo.length) return `${SEM_NAMES[now]} 항목을 모두 완료했어요. 다음 학기 계획을 미리 살펴보세요.`;
     return [`${SEM_NAMES[now]}에 남은 항목은 ${todo.length}개예요.`, ...todo.map((it) => `• ${it.name} (${unitText(it)})`)].join("\n");
+  }
+
+  if (asksPrograms && ctx.recs) {
+    const list = (themeAsked ? ctx.recs.filter((r) => r.themes.includes(themeAsked.id)) : ctx.recs).slice(0, 5);
+    if (!list.length) return `${themeAsked?.label ?? ""} 관련 프로그램을 찾지 못했어요. '비교과 추천' 탭에서 다른 카테고리를 확인해 보세요.`;
+    return [
+      `${themeAsked ? `'${themeAsked.label}' 카테고리에서 ` : ""}진로 진단 결과에 맞는 비교과예요.`,
+      ...list.map((r) => `• ${r.p.t} (${r.p.p ? r.p.p + "pt" : "포인트 공지 확인"}, ${r.p.o}${statusOf(r.p) === "open" ? ", 지금 신청 가능" : ""})`),
+      "'비교과 추천' 탭에서 로드맵에 담을 수 있어요.",
+    ].join("\n");
   }
 
   if (/비교과|포인트|pt|HSP/i.test(q)) {

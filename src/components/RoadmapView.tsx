@@ -91,7 +91,7 @@ export function RoadmapView({
                 const id = `it-${k}-${j}`;
                 const on = !!checks[it.id];
                 return (
-                  <div key={it.id} className={`item ${it.kind}${on ? " checked" : ""}${it.req === "필" || it.req === "기" ? " req" : ""}`}>
+                  <div key={it.id} className={`item ${it.kind}${on ? " checked" : ""}${it.req === "필" || it.req === "기" ? " req" : ""}${it.auto ? " auto" : ""}`}>
                     <input type="checkbox" id={id} checked={on} onChange={(e) => onToggle(it.id, e.target.checked)} />
                     <label htmlFor={id}>
                       <span>{it.name}</span>
@@ -103,14 +103,16 @@ export function RoadmapView({
               })}
               <div className="sem-foot">
                 <span>교과 {credits}학점</span>
-                <span>비교과 {pts}pt</span>
+                <span className={pts > GRAD.semesterCap ? "warn" : ""}>
+                  비교과 {pts}pt{pts > GRAD.semesterCap ? ` (학기당 ${GRAD.semesterCap}pt까지 인정)` : ""}
+                </span>
               </div>
             </article>
           );
         })}
       </div>
       <p className="hint">
-        과목의 학년·학기와 이수구분은 각 트랙 공식 교육과정 기준이고, 교양 과목의 학기 배치와 전공선택 과목 선택은 예시예요. 교양 외 자유선택 {GRAD.free}학점은 따로 채워야 해요.
+        과목의 학년·학기와 이수구분은 각 트랙 공식 교육과정 기준이고, 교양 과목의 학기 배치와 전공선택 과목 선택은 예시예요. '추천'이 붙은 비교과는 내가 담은 프로그램이 없는 학기에 앱이 채운 것으로, '비교과 추천' 탭에서 바꿀 수 있어요. 교양 외 자유선택 {GRAD.free}학점은 따로 채워야 해요.
       </p>
     </section>
   );

@@ -48,12 +48,7 @@ export const EXTRA_PLAN: { sem: number; name: string; pts: number; label?: strin
   { sem: 0, name: "학생성공센터 신입생 프로그램 확인", pts: 0, label: "확인", sub: "예비대학·대학생활길라잡이 등" },
   { sem: 1, name: "전공설계지도(Academic Advisor) 상담", pts: 0, label: "공지 확인", sub: "트랙 선택 전 지도교수 상담" },
   { sem: 1, name: "트라이앵글 트랙팀상담", pts: 0, label: "공지 확인", sub: "학생성공센터 트랙 선택 지원" },
-  { sem: 2, name: "한성인의 도전이야기", pts: 0, label: "공지 확인", sub: "매 학기 3~4월·9~10월 모집" },
   { sem: 3, name: "HSP(High Success Project) 3개월", pts: 100, sub: "팀 프로젝트 · 활동지원금 1인 10만원" },
-  { sem: 4, name: "비교과 아이디어 공모전", pts: 30, sub: "참여자 전원 30P, 연 1회" },
-  { sem: 4, name: "HSP(High Success Project) 6개월", pts: 200, sub: "팀 프로젝트 · 활동지원금 1인 15만원" },
-  { sem: 5, name: "공모전·대회 / 어학·자격 프로그램", pts: 0, label: "프로그램별", sub: "스마트자기관리시스템 공지 포인트" },
-  { sem: 6, name: "현장체험활동·특강·워크숍", pts: 0, label: "프로그램별", sub: "스마트자기관리시스템 공지 포인트" },
   { sem: 7, name: "비교과포인트 800pt·한성인재인증 최종 점검", pts: 0, label: "점검", sub: "학기당 200pt 상한 고려" },
 ];
 

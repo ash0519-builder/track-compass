@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Chat } from "./components/Chat";
 import { Diagnose } from "./components/Diagnose";
+import { Programs } from "./components/Programs";
 import { Recommend } from "./components/Recommend";
 import { RoadmapView } from "./components/RoadmapView";
 import { Rules } from "./components/Rules";
 import { Summary } from "./components/Summary";
 import { ENTRIES } from "./data/tracks";
 import { buildRoadmap, checksBefore, nowIndex, progress } from "./lib/roadmap";
+import { recommendPrograms } from "./lib/programs";
 import { combos } from "./lib/scoring";
 import { clearState, loadState, saveState } from "./lib/storage";
 import type { AppState, Combo, Profile } from "./types";
@@ -15,6 +17,7 @@ const TABS = [
   { id: "diagnose", label: "진로 진단" },
   { id: "recommend", label: "트랙 추천" },
   { id: "roadmap", label: "학기별 로드맵" },
+  { id: "programs", label: "비교과 추천" },
   { id: "chat", label: "상담" },
   { id: "rules", label: "졸업요건·제도" },
 ] as const;
@@ -28,6 +31,7 @@ export const SAMPLE_PROFILE: Profile = {
   interests: ["데이터·AI", "경영·마케팅", "콘텐츠·미디어"],
   jobs: ["데이터분석가", "마케터"],
   strengths: ["분석·조사", "창의·표현"],
+  extraThemes: ["english", "ai"],
 };
 
 function sampleState(): AppState {
@@ -36,6 +40,7 @@ function sampleState(): AppState {
     profile: SAMPLE_PROFILE,
     pick: [top.a.name, top.b.name],
     checks: checksBefore(buildRoadmap(top, SAMPLE_PROFILE), nowIndex(SAMPLE_PROFILE)),
+    extraPicks: {},
     myPoints: null,
     sample: true,
   };
@@ -67,9 +72,11 @@ export default function App() {
   const list = useMemo(() => combos(state.profile), [state.profile]);
   const top = list.slice(0, 3);
   const pick: Combo = (state.pick && list.find((c) => c.a.name === state.pick![0] && c.b.name === state.pick![1])) || top[0];
-  const roadmap = useMemo(() => buildRoadmap(pick, state.profile), [pick, state.profile]);
-  const prog = progress(roadmap, state.checks, state.myPoints);
   const now = nowIndex(state.profile);
+  const recs = useMemo(() => recommendPrograms(state.profile, pick), [state.profile, pick]);
+  const picks = useMemo(() => state.extraPicks ?? {}, [state.extraPicks]);
+  const roadmap = useMemo(() => buildRoadmap(pick, state.profile, { picks, recs, now }), [pick, state.profile, picks, recs, now]);
+  const prog = progress(roadmap, state.checks, state.myPoints);
 
   const go = (t: TabId) => {
     window.location.hash = t;
@@ -144,7 +151,22 @@ export default function App() {
               onPoints={(v) => setState({ ...state, myPoints: v, sample: false })}
             />
           )}
-          {tab === "chat" && <Chat key={pick.a.name + pick.b.name} ctx={{ state, pick, top, roadmap }} />}
+          {tab === "programs" && (
+            <Programs
+              profile={state.profile}
+              recs={recs}
+              picks={picks}
+              now={now}
+              onPick={(id, sem) => setState({ ...state, extraPicks: { ...picks, [String(id)]: sem }, sample: false })}
+              onUnpick={(id) => {
+                const next = { ...picks };
+                delete next[String(id)];
+                setState({ ...state, extraPicks: next, sample: false });
+              }}
+              onThemes={(themes) => setState({ ...state, profile: { ...state.profile, extraThemes: themes }, sample: false })}
+            />
+          )}
+          {tab === "chat" && <Chat key={pick.a.name + pick.b.name} ctx={{ state, pick, top, roadmap, recs }} />}
           {tab === "rules" && <Rules />}
 
           <footer className="note">
