@@ -1,5 +1,6 @@
-import { COLLEGES, findEntry } from "../data/tracks";
-import { comboNotes, firstCandidates, rankedTracks, reasonLines, toPoints } from "../lib/scoring";
+import { useState } from "react";
+import { COLLEGES, findEntry, TRACKS } from "../data/tracks";
+import { comboNotes, firstCandidates, rankedTracks, reasonLines, toPoints, validCombo } from "../lib/scoring";
 import type { Combo, Profile, Track } from "../types";
 import { entryName } from "./Summary";
 
@@ -13,6 +14,71 @@ function TrackHead({ t, label, tone, score }: { t: Track; label: string; tone: s
       <small>
         {COLLEGES[t.college].name} · {t.school === t.name ? "학과" : t.school} · {t.offer === "주야" ? "주·야" : `${t.offer}만`} · 적합도 {toPoints(score)}
       </small>
+    </div>
+  );
+}
+
+const collegeOrder = ["HUM", "SOC", "DES", "ENG", "CON"] as const;
+
+/** 이미 트랙을 정한 학생이 자기 조합을 직접 고르는 칸 */
+function ManualPicker({ profile, pick, onPick }: { profile: Profile; pick: Combo; onPick: (c: Combo) => void }) {
+  const firsts = firstCandidates(profile);
+  const [a, setA] = useState(firsts.includes(pick.a) ? pick.a.name : firsts[0]?.name ?? "");
+  const [b, setB] = useState(pick.b.name);
+  const combo = validCombo(profile, a, b);
+  const isCurrent = combo && combo.a.name === pick.a.name && combo.b.name === pick.b.name;
+  return (
+    <div className="card manual" id="manual-pick">
+      <div>
+        <h3>이미 정한 트랙이 있나요?</h3>
+        <p className="hint">추천과 관계없이 내 제1·제2트랙을 직접 골라 로드맵을 만들 수 있어요. 제1트랙은 소속 모집단위 안에서만 고를 수 있어요.</p>
+      </div>
+      <div className="manual-row">
+        <label className="f" htmlFor="trackA">
+          제1트랙
+          <select
+            id="trackA"
+            value={a}
+            onChange={(e) => {
+              const v = e.target.value;
+              setA(v);
+              if (b === v) setB(TRACKS.find((t) => t.name !== v)!.name);
+            }}
+          >
+            {firsts.map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="f" htmlFor="trackB">
+          제2트랙
+          <select id="trackB" value={b} onChange={(e) => setB(e.target.value)}>
+            {collegeOrder.map((col) => (
+              <optgroup key={col} label={COLLEGES[col].name}>
+                {TRACKS.filter((t) => t.college === col && t.name !== a).map((t) => (
+                  <option key={t.name} value={t.name}>
+                    {t.name}
+                    {t.offer !== "주야" ? ` (${t.offer}만)` : ""}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="btn" disabled={!combo || !!isCurrent} onClick={() => combo && onPick(combo)}>
+          {isCurrent ? "선택된 조합" : "이 조합으로 로드맵 만들기"}
+        </button>
+      </div>
+      {combo ? (
+        <p className="hint">
+          이 조합 점수 {toPoints(combo.total)} / 110점
+          {comboNotes(combo, profile).length ? ` · ${comboNotes(combo, profile).join(" · ")}` : ""}
+        </p>
+      ) : (
+        <p className="warn">제1트랙과 제2트랙을 서로 다르게 골라주세요.</p>
+      )}
     </div>
   );
 }
@@ -36,6 +102,8 @@ export function Recommend({ profile, top, pick, onPick }: { profile: Profile; to
           </p>
         </div>
       </div>
+
+      {profile.year >= 2 && <ManualPicker key={pick.a.name + pick.b.name} profile={profile} pick={pick} onPick={onPick} />}
 
       <div className="recs">
         {top.map((c, k) => {
@@ -74,6 +142,8 @@ export function Recommend({ profile, top, pick, onPick }: { profile: Profile; to
           );
         })}
       </div>
+
+      {profile.year < 2 && <ManualPicker key={pick.a.name + pick.b.name} profile={profile} pick={pick} onPick={onPick} />}
 
       <div className="card top-list">
         <h3>트랙별 적합도 상위 8개</h3>

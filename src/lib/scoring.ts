@@ -102,3 +102,15 @@ export function comboNotes(c: Combo, p: Profile): string[] {
   if (shared.length) notes.push(`두 트랙의 전공기초(${shared[0].name})가 같아 전공선택 1과목을 더 들어야 해요`);
   return notes;
 }
+
+/**
+ * 학생이 고른 두 트랙이 학사 규칙에 맞는지 확인하고 조합을 만든다.
+ * 맞지 않으면 null (예: 제1트랙이 소속 모집단위 밖, 같은 트랙 두 번, 제2트랙 전용을 제1트랙으로)
+ */
+export function validCombo(p: Profile, aName: string, bName: string, tracks: Track[] = TRACKS): Combo | null {
+  const a = tracks.find((t) => t.name === aName);
+  const b = tracks.find((t) => t.name === bName);
+  if (!a || !b || a === b) return null;
+  if (!firstCandidates(p, tracks).includes(a)) return null;
+  return makeCombo(a, b, p);
+}

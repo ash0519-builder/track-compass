@@ -1,12 +1,14 @@
 import { useState, type FormEvent } from "react";
+import { ADMISSION_YEARS, CURRENT_YEAR } from "../data/rules";
 import { ENTRIES, findEntry, TAG_LABELS, TAG_LIMITS, TAGS, type TagGroup } from "../data/tracks";
+import { admissionOf } from "../lib/roadmap";
 import { THEMES } from "../lib/programs";
 import type { DayNight, Profile } from "../types";
 
 const GROUPS: TagGroup[] = ["interests", "jobs", "strengths"];
 
 export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p: Profile) => void }) {
-  const [draft, setDraft] = useState<Profile>(profile);
+  const [draft, setDraft] = useState<Profile>({ ...profile, admission: admissionOf(profile) });
   const [warn, setWarn] = useState("");
   const ok = draft.interests.length > 0 && draft.jobs.length > 0;
   const entry = findEntry(draft.entry);
@@ -68,7 +70,14 @@ export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p
           </label>
           <label className="f" htmlFor="year">
             학년
-            <select id="year" value={draft.year} onChange={(e) => setDraft({ ...draft, year: Number(e.target.value) })}>
+            <select
+              id="year"
+              value={draft.year}
+              onChange={(e) => {
+                const year = Number(e.target.value);
+                setDraft({ ...draft, year, admission: CURRENT_YEAR - (year - 1) });
+              }}
+            >
               {[1, 2, 3, 4].map((y) => (
                 <option key={y} value={y}>
                   {y}학년
@@ -84,7 +93,22 @@ export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p
             </select>
           </label>
         </div>
-        <p className="hint">예술학부(실기 전공)와 글로벌인재대학은 트랙 선택 방식이 달라 목록에서 뺐어요.</p>
+        <div className="row4">
+          <label className="f" htmlFor="admission">
+            입학년도(학번)
+            <select id="admission" value={draft.admission} onChange={(e) => setDraft({ ...draft, admission: Number(e.target.value) })}>
+              {ADMISSION_YEARS.map((y) => (
+                <option key={y} value={y}>
+                  {y}년 입학 ({String(y).slice(2)}학번)
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <p className="hint">
+          학번에 따라 교양 졸업학점이 달라요(24학번 이후 31학점, 19~23학번 28학점). 휴학·편입했다면 실제 학번을 골라주세요. 예술학부(실기 전공)와 글로벌인재대학은 트랙 선택 방식이 달라
+          목록에서 뺐어요.
+        </p>
 
         {GROUPS.map((g) => (
           <fieldset key={g}>

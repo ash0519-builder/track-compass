@@ -55,6 +55,8 @@ export interface EntryUnit {
 export interface Profile {
   entry: string;
   day: DayNight;
+  /** 입학년도(학번). 교양 졸업학점과 교양필수 과목이 학번마다 다르다 */
+  admission?: number;
   year: number;
   sem: number;
   interests: string[];
@@ -91,6 +93,10 @@ export interface PlanItem {
   programId?: number;
   /** 학생이 담지 않았고 앱이 추천해서 넣은 항목 */
   auto?: boolean;
+  /** 지난 학기에 이수하지 못해 이번·다음 학기로 다시 넣은 항목 (원래 항목 id) */
+  carryOf?: string;
+  /** 학기 학점이 몰려 다른 학기로 옮긴 경우 원래 학기 인덱스 */
+  movedFrom?: number;
 }
 
 export type Roadmap = PlanItem[][];

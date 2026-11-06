@@ -12,6 +12,7 @@
   --extra: #9A5B12;
   --extra-soft: #FBEFDF;
   --good: #1E8E5A;
+  --carry: #C2410C;
   --font: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
   color-scheme: light;
 }
@@ -19,13 +20,13 @@
   :root:not([data-theme="light"]) {
     --bg: #0E131A; --surface: #161D27; --ink: #E5EAF1; --muted: #9AA5B4; --line: #2A3442;
     --accent: #84A7F2; --accent-soft: #1C2943; --track-b: #4CC2BD; --track-b-soft: #12302F;
-    --extra: #E3A85A; --extra-soft: #33261A; --good: #4CC38A; color-scheme: dark;
+    --extra: #E3A85A; --extra-soft: #33261A; --good: #4CC38A; --carry: #FB923C; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0E131A; --surface: #161D27; --ink: #E5EAF1; --muted: #9AA5B4; --line: #2A3442;
   --accent: #84A7F2; --accent-soft: #1C2943; --track-b: #4CC2BD; --track-b-soft: #12302F;
-  --extra: #E3A85A; --extra-soft: #33261A; --good: #4CC38A; color-scheme: dark;
+  --extra: #E3A85A; --extra-soft: #33261A; --good: #4CC38A; --carry: #FB923C; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -48,6 +49,8 @@ header.top .wrap { display: flex; align-items: center; justify-content: space-be
 .summary h2 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .combo-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; }
 .combo-line .plus { color: var(--muted); font-weight: 400; }
+.now-line { margin: 12px 0 0; font-size: 13.5px; }
+.now-line .warn { color: var(--carry); font-weight: 600; }
 .profile-line { margin-top: 8px; color: var(--muted); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 6px; }
 .meters { display: grid; gap: 10px; }
 .meter-label { display: flex; justify-content: space-between; font-size: 13px; }
@@ -229,3 +232,37 @@ dl.rules dd { margin: 0; color: var(--ink); }
 .prog-actions a { margin-left: auto; color: var(--accent); }
 .btn.more { margin: 14px auto 0; display: block; }
 @media (max-width: 560px) { .open-only { margin-left: 0; } .prog-list { grid-template-columns: 1fr; } }
+
+/* v3: 직접 선택, 지난 학기 안내, 다시 들을 과목, 파일 저장, 인쇄 */
+.card.manual { display: grid; gap: 10px; margin-bottom: 14px; }
+.card.manual h3 { margin: 0 0 2px; font-size: 16px; }
+.card.manual .hint, .card.manual .warn { margin: 0; }
+.manual-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; }
+.card.notice { display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 14px; border-color: var(--extra); background: var(--extra-soft); }
+.card.notice p { margin: 4px 0 0; }
+.pill.carry { background: transparent; border: 1px dashed var(--carry); color: var(--carry); }
+.item.carry { border-left-color: var(--carry); background: transparent; border: 1px dashed var(--carry); border-left-width: 3px; }
+.item.carry label small { color: var(--carry); }
+.file-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-top: 1px solid var(--line); padding-top: 10px; }
+.file-actions .btn { padding: 7px 12px; font-size: 13.5px; }
+@media (max-width: 700px) {
+  nav.tabs { flex-wrap: wrap; overflow-x: visible; border-bottom: 0; gap: 6px; }
+  nav.tabs a { flex: 1 1 calc(33% - 6px); text-align: center; border: 1px solid var(--line); border-radius: 8px; padding: 8px 6px; font-size: 13.5px; }
+  nav.tabs a[aria-current="page"] { border-color: var(--accent); background: var(--accent-soft); }
+  nav.tabs a .num { display: none; }
+  .manual-row { grid-template-columns: 1fr; }
+}
+@media print {
+  header.top .header-actions, nav.tabs, .file-actions, .points, .card.notice .btn, .prog-actions, .theme-tabs, .card.want, .note, form.ask, .suggest, .btn { display: none !important; }
+  body { background: #fff; color: #000; font-size: 11px; }
+  .card { box-shadow: none !important; break-inside: avoid; }
+  @page { size: A4 landscape; margin: 10mm; }
+  .sems { grid-template-columns: repeat(4, 1fr) !important; gap: 6px; }
+  .sem { padding: 8px !important; }
+  .item { break-inside: avoid; padding: 4px 6px !important; gap: 4px !important; }
+  .item label span { font-size: 10px; }
+  .item small, .item .u, .sem-foot, .sem-foot .warn { font-size: 8.5px !important; }
+  .item.checked label span { text-decoration: none; }
+  .summary { grid-template-columns: 1.4fr 1fr !important; }
+  .card.notice { display: none; }
+}

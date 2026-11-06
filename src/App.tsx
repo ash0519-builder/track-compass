@@ -9,8 +9,8 @@ import { Summary } from "./components/Summary";
 import { ENTRIES } from "./data/tracks";
 import { buildRoadmap, checksBefore, nowIndex, progress } from "./lib/roadmap";
 import { recommendPrograms } from "./lib/programs";
-import { combos } from "./lib/scoring";
-import { clearState, loadState, saveState } from "./lib/storage";
+import { combos, validCombo } from "./lib/scoring";
+import { clearState, loadState, sanitizeState, saveState } from "./lib/storage";
 import type { AppState, Combo, Profile } from "./types";
 
 const TABS = [
@@ -26,6 +26,7 @@ type TabId = (typeof TABS)[number]["id"];
 export const SAMPLE_PROFILE: Profile = {
   entry: "상상력인재학부",
   day: "주간",
+  admission: 2026,
   year: 1,
   sem: 2,
   interests: ["데이터·AI", "경영·마케팅", "콘텐츠·미디어"],
@@ -71,11 +72,14 @@ export default function App() {
 
   const list = useMemo(() => combos(state.profile), [state.profile]);
   const top = list.slice(0, 3);
-  const pick: Combo = (state.pick && list.find((c) => c.a.name === state.pick![0] && c.b.name === state.pick![1])) || top[0];
+  const pick: Combo = (state.pick && validCombo(state.profile, state.pick[0], state.pick[1])) || top[0];
   const now = nowIndex(state.profile);
   const recs = useMemo(() => recommendPrograms(state.profile, pick), [state.profile, pick]);
   const picks = useMemo(() => state.extraPicks ?? {}, [state.extraPicks]);
-  const roadmap = useMemo(() => buildRoadmap(pick, state.profile, { picks, recs, now }), [pick, state.profile, picks, recs, now]);
+  const roadmap = useMemo(
+    () => buildRoadmap(pick, state.profile, { picks, recs, now, checks: state.checks }),
+    [pick, state.profile, picks, recs, now, state.checks],
+  );
   const prog = progress(roadmap, state.checks, state.myPoints);
 
   const go = (t: TabId) => {
@@ -83,11 +87,49 @@ export default function App() {
   };
 
   function submitProfile(p: Profile) {
-    const first = combos(p)[0];
-    const rm = buildRoadmap(first, p);
-    const keepChecks = nowIndex(p) === now;
-    setState({ ...state, profile: p, pick: [first.a.name, first.b.name], checks: keepChecks ? state.checks : checksBefore(rm, nowIndex(p)), sample: false });
+    // 이전에 고른 조합이 새 조건에서도 규칙에 맞으면 그대로 유지
+    const kept = state.pick && !state.sample ? validCombo(p, state.pick[0], state.pick[1]) : null;
+    const next = kept ?? combos(p)[0];
+    setState({
+      ...state,
+      profile: p,
+      pick: [next.a.name, next.b.name],
+      // 예시 데이터의 체크·담은 비교과는 버리고, 내 데이터는 유지 (지난 학기는 학생이 직접 체크)
+      checks: state.sample ? {} : state.checks,
+      extraPicks: state.sample ? {} : state.extraPicks,
+      myPoints: state.sample ? null : state.myPoints,
+      sample: false,
+    });
     go("recommend");
+  }
+
+  function markPast() {
+    setState({ ...state, checks: checksBefore(roadmap, now, state.checks), sample: false });
+  }
+
+  function exportPlan() {
+    const blob = new Blob([JSON.stringify({ app: "track-compass", version: 3, savedAt: new Date().toISOString(), state }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `트랙나침반_내계획_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function importPlan(file: File) {
+    file
+      .text()
+      .then((txt) => {
+        const data = JSON.parse(txt);
+        const s = data?.app === "track-compass" ? sanitizeState(data.state) : null;
+        if (!s) throw new Error("형식");
+        setState({ ...s, sample: false });
+        window.alert("저장한 계획을 불러왔어요.");
+      })
+      .catch(() => window.alert("트랙 나침반에서 저장한 계획 파일(.json)만 불러올 수 있어요."));
   }
 
   function choose(c: Combo) {
@@ -103,6 +145,7 @@ export default function App() {
   }
 
   function reset() {
+    if (!state.sample && !window.confirm("입력한 진단 결과, 체크, 담은 비교과가 모두 지워져요. 예시 데이터로 초기화할까요?")) return;
     clearState();
     setState(sampleState());
     go("recommend");
@@ -126,7 +169,7 @@ export default function App() {
       </header>
 
       <div className="wrap">
-        <Summary pick={pick} profile={state.profile} prog={prog} />
+        <Summary pick={pick} profile={state.profile} prog={prog} roadmap={roadmap} />
 
         <nav className="tabs" aria-label="단계">
           {TABS.map((t, k) => (
@@ -149,6 +192,9 @@ export default function App() {
               myPoints={state.myPoints}
               onToggle={toggle}
               onPoints={(v) => setState({ ...state, myPoints: v, sample: false })}
+              onMarkPast={markPast}
+              onExport={exportPlan}
+              onImport={importPlan}
             />
           )}
           {tab === "programs" && (

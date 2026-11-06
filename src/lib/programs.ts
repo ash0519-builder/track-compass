@@ -61,7 +61,39 @@ const STRENGTH_KW: Record<string, RegExp> = {
   "리더십·기획": /리더십|기획|프로젝트|홍보단|서포터즈|대사/,
 };
 
-const TODAY = "2026-11-07";
+/** 오늘 날짜 (사용자 기기 기준, YYYY-MM-DD) */
+export function todayISO(d = new Date()): string {
+  const z = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+}
+
+/** 로드맵에 넣을 때 '2026-1', '26-2학기' 같은 지난 학기 표기를 뗀 이름 */
+const SEASON = "(?:하계|동계|여름|겨울)\\s*(?:학기|방학)?";
+const TERM = `(?:[12]\\s*학기|[12](?![0-9])|${SEASON})`;
+/** 2026-2학기, 26-2학기, 2026학년도 2학기, 2026년 하계학기, 2026-1) 같은 운영 시기 표기 */
+const DATE_RE = new RegExp(`(^|[^0-9])(?:20\\d\\d|2\\d(?=\\s*[-–]))\\s*(?:학년도|년도|년)?\\s*(?:[-–.]\\s*)?(?:${TERM})?\\s*(?:학년도)?\\s*\\)?`, "g");
+
+/** "학습컨설팅 학습컨설팅 2차"처럼 그룹명과 회차명이 겹친 앞부분을 한 번만 남긴다 */
+function collapseRepeat(t: string): string {
+  const w = t.split(" ");
+  for (let k = Math.floor(w.length / 2); k >= 1; k--) {
+    const head = w.slice(0, k).join("");
+    const rest = w.slice(k).join(" ");
+    if (head.length >= 2 && rest.replace(/\s+/g, "").startsWith(head)) return rest;
+  }
+  return t;
+}
+
+/** 학기·연도 표기와 운영 태그를 뺀 프로그램 이름 (자동 추천에 쓰는 대표 이름) */
+export function cleanProgramName(t: string): string {
+  const out = t
+    .replace(/\[(인재인증|대플|재맞고|졸특)\]\s*/g, "")
+    .replace(DATE_RE, (_m, pre: string) => `${pre} `)
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s_:·)\]–-]+|[\s_:·(\[–-]+$/g, "")
+    .trim();
+  return collapseRepeat(out) || t;
+}
 
 export const textOf = (p: Program) => `${p.t} ${p.k} ${p.d}`;
 
@@ -82,7 +114,7 @@ export function themesOf(p: Program): ThemeId[] {
 
 /** open: 지금 신청 가능, running: 신청 마감·운영 중, closed: 종료 (다음 학기 운영 공지 확인) */
 export type Status = "open" | "running" | "closed";
-export function statusOf(p: Program, today = TODAY): Status {
+export function statusOf(p: Program, today = todayISO()): Status {
   if (p.ae >= today) return "open";
   if (p.e >= today) return "running";
   return "closed";

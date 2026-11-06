@@ -12,6 +12,8 @@ export const SOURCES = {
   colleges: { label: "대학전체 (2027 개편 명칭 병기)", url: "https://www.hansung.ac.kr/hansung/6081/subview.do" },
   capstone: { label: "HSP 시스템 (캡스톤디자인 운영시스템)", url: "https://capstone.hansung.ac.kr/main.do" },
   studyGuide: { label: "2026-1 수강신청 안내 및 학업이수가이드", url: "https://www.hansung.ac.kr/bbs/hansung/2127/60429/download.do" },
+  creditLimit: { label: "수강학점(학점이월제)", url: "https://www.hansung.ac.kr/hansung/6226/subview.do" },
+  retake: { label: "수강신청·재수강 안내", url: "https://www.hansung.ac.kr/hansung/6225/subview.do" },
 } as const;
 
 /** 2016학번 이후 졸업요건 */
@@ -26,6 +28,10 @@ export const GRAD = {
   extraPoints: 800,
   gpa: 2.0,
   semesterCap: 200,
+  /** 16학번 이후 학기당 최대 수강신청 학점 */
+  semesterMax: 18,
+  /** 학점이월 포함 학기당 최대 취득 학점 (16학번 이후) */
+  semesterMaxCarry: 21,
 } as const;
 
 /** 24학번 이후 교양필수 (2026-1 학업이수가이드 기준). 권장 학기는 예시 배치. */
@@ -39,6 +45,18 @@ export const LIBERAL_REQUIRED: { sem: number; name: string; credit: number }[] =
 
 /** 상상력인재학부 2025학번 이후: 한성 이마기난스 대신 AI+X 전공탐색 */
 export const IMAGINANCE_FREE_ALT = "AI+X 전공탐색";
+
+/** 학번별 교양 졸업학점 (2026-1 학업이수가이드) */
+export function liberalTotal(admission: number): number {
+  if (admission >= 2024) return 31;
+  if (admission >= 2019) return 28;
+  if (admission >= 2017) return 22;
+  return 24;
+}
+
+/** 선택할 수 있는 입학년도 (2016학번부터 비교과 800pt·130학점 기준) */
+export const ADMISSION_YEARS = [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016];
+export const CURRENT_YEAR = 2026;
 
 /**
  * 비교과 로드맵 (학생성공센터 공식 프로그램). 포인트는 공식 페이지에 공개된 값만 숫자로 넣고,

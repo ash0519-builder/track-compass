@@ -36,6 +36,12 @@ export function Rules() {
                 <td>{GRAD.free}학점</td>
               </tr>
               <tr>
+                <th>학기당 수강</th>
+                <td>
+                  6~{GRAD.semesterMax}학점 · 학점이월 포함 최대 {GRAD.semesterMaxCarry}학점 (16학번 이후)
+                </td>
+              </tr>
+              <tr>
                 <th>비교과</th>
                 <td>{GRAD.extraPoints}pt (미충족 시 수료 처리)</td>
               </tr>
@@ -46,7 +52,8 @@ export function Rules() {
             </tbody>
           </table>
           <p className="src">
-            출처: <a href={SOURCES.graduation.url}>{SOURCES.graduation.label}</a> · <a href={SOURCES.studyGuide.url}>{SOURCES.studyGuide.label}</a>
+            출처: <a href={SOURCES.graduation.url}>{SOURCES.graduation.label}</a> · <a href={SOURCES.studyGuide.url}>{SOURCES.studyGuide.label}</a> ·{" "}
+            <a href={SOURCES.creditLimit.url}>{SOURCES.creditLimit.label}</a>
           </p>
         </div>
 

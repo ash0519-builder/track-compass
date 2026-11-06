@@ -1,8 +1,8 @@
-import { GRAD, SOURCES } from "../data/rules";
+import { GRAD, liberalTotal, SOURCES } from "../data/rules";
 import { COLLEGES, findEntry, SEM_NAMES, TRACKS } from "../data/tracks";
 import type { AppState, Combo, Roadmap } from "../types";
 import { eul, eun } from "./korean";
-import { nowIndex, progress, unitText } from "./roadmap";
+import { admissionOf, nowIndex, progress, semesterCredits, unitText } from "./roadmap";
 import { statusOf, THEMES, type Scored } from "./programs";
 import { comboNotes, firstCandidates, fit, makeCombo, reasonLines, toPoints } from "./scoring";
 
@@ -14,6 +14,26 @@ export interface AdvisorContext {
   recs?: Scored[];
 }
 
+/** 모든 트랙의 과목 이름 → 개설 정보 */
+const COURSE_INDEX = (() => {
+  const m = new Map<string, { track: string; term: string; req: string }[]>();
+  for (const t of TRACKS) for (const c of t.courses) m.set(c.name, [...(m.get(c.name) ?? []), { track: t.name, term: c.term, req: c.req }]);
+  return m;
+})();
+const REQ_NAME: Record<string, string> = { 기: "전공기초", 필: "전공필수", 선: "전공선택" };
+const squash = (x: string) => x.replace(/\s+/g, "").toLowerCase();
+
+/** 질문에 들어 있는 과목 이름 (가장 긴 것) */
+function findCourse(q: string): string | null {
+  const sq = squash(q);
+  let best: string | null = null;
+  for (const name of COURSE_INDEX.keys()) {
+    const sn = squash(name);
+    if (sn.length >= 3 && sq.includes(sn) && (!best || sn.length > squash(best).length)) best = name;
+  }
+  return best;
+}
+
 export const SUGGESTIONS = [
   "왜 이 조합을 추천했어?",
   "이번 학기에 뭐 해야 해?",
@@ -21,6 +41,7 @@ export const SUGGESTIONS = [
   "영어 관련 비교과 추천해줘",
   "빅데이터트랙으로 바꾸면 어떻게 돼?",
   "졸업하려면 뭐가 필요해?",
+  "캡스톤디자인 언제 들어?",
   "1트랙은 어디서 골라야 해?",
 ];
 
@@ -38,7 +59,7 @@ export function answer(q: string, ctx: AdvisorContext): string {
   const named = TRACKS.filter((t) => q.includes(t.name) || q.includes(t.name.replace(/(트랙|학과)$/, ""))).sort((m, n) => n.name.length - m.name.length)[0];
 
   const themeAsked = THEMES.find((t) => q.includes(t.label.split("·")[0]) || (t.id === "english" && /영어|외국어|어학/.test(q)));
-  const asksPrograms = !!ctx.recs && (/비교과|프로그램/.test(q) || !!themeAsked) && !/조합|포인트|pt|남았|졸업/.test(q);
+  const asksPrograms = !!ctx.recs && (/비교과|프로그램/.test(q) || !!themeAsked) && !/조합|포인트|pt|남았|졸업|점수|성적|토익/i.test(q);
 
   if (/바꾸|변경|바꿔|대신/.test(q) || (named && named !== c.a && named !== c.b)) {
     if (!named) {
@@ -119,14 +140,83 @@ export function answer(q: string, ctx: AdvisorContext): string {
     ].join("\n");
   }
 
+  if (/최대 ?학점|몇 ?학점까지|학점 ?이월|이월|학기당|한 ?학기에 ?몇|수강 ?신청 ?학점|너무 많|과부하/.test(q) && !/pt|포인트|비교과/i.test(q)) {
+    const loads = rm.map(semesterCredits);
+    const heavy = loads.map((v, k) => ({ v, k })).filter((x) => x.k >= nowIndex(state.profile) && x.v > GRAD.semesterMax);
+    return [
+      `학기당 수강신청은 16학번 이후 6~${GRAD.semesterMax}학점이에요 (출처: ${SOURCES.creditLimit.label}).`,
+      `• 직전 학기에 ${GRAD.semesterMax}학점보다 적게 신청했다면 남은 학점을 최대 3학점까지 다음 학기로 이월해 ${GRAD.semesterMaxCarry}학점까지 들을 수 있어요.`,
+      "• 직전 학기 15학점 이상·평점 4.0 이상·F 없는 성적우수자는 학점이월과 별도로 더 신청할 수 있어요 (학사 공지 확인).",
+      heavy.length
+        ? `내 로드맵에서 ${GRAD.semesterMax}학점을 넘는 학기: ${heavy.map((x) => `${SEM_NAMES[x.k]} ${x.v}학점`).join(", ")}. 전공선택이나 교양을 다른 학기로 옮기거나 계절학기를 검토하세요.`
+        : `내 로드맵의 남은 학기는 모두 ${GRAD.semesterMax}학점 이하예요 (가장 많은 학기 ${Math.max(...loads)}학점).`,
+    ].join("\n");
+  }
+
+  if (/재수강/.test(q)) {
+    return [
+      `재수강 규정이에요 (출처: ${SOURCES.retake.label}).`,
+      "• 한 학기 3학점 이내, 재학 중 12학점 이내 (4학년은 학기 제한 없이 전체 12학점 이내)",
+      "• 재수강 성적은 최고 A까지, 마지막 성적만 인정되고 성적표에 'R' 표시",
+      "• 11학번 이후 F 과목 재수강은 12학점 제한을 받지 않고, 계절학기 재수강도 12학점에 포함되지 않아요.",
+      "• 교육과정에서 폐지된 과목은 재수강할 수 없어요.",
+    ].join("\n");
+  }
+
   if (/졸업/.test(q)) {
+    const lib = liberalTotal(admissionOf(state.profile));
     return [
       `한성대 졸업요건 (16학번 이후, 출처: ${SOURCES.graduation.label})`,
-      `• 교과 ${GRAD.total}학점: 전공 ${GRAD.major}학점(트랙당 ${GRAD.perTrack}학점 = ${GRAD.perTrackDetail}), 교양 ${GRAD.liberal}학점, 자유선택 ${GRAD.free}학점`,
+      `• 교과 ${GRAD.total}학점: 전공 ${GRAD.major}학점(트랙당 ${GRAD.perTrack}학점 = ${GRAD.perTrackDetail}), 교양 ${lib}학점(${admissionOf(state.profile)}학번 기준), 자유선택 ${GRAD.free}학점`,
       `• 비교과포인트 ${GRAD.extraPoints}pt (미충족 시 수료 처리)`,
       `• 트랙별 졸업요건(캡스톤·졸업작품 등)은 각 트랙 홈페이지에서 확인`,
-      `지금 체크 기준: 1트랙 ${pr.a}/${GRAD.perTrack}학점, 2트랙 ${pr.b}/${GRAD.perTrack}학점, 교양 ${pr.liberal}/${GRAD.liberal}학점.`,
+      `지금 체크 기준: 1트랙 ${pr.a}/${GRAD.perTrack}학점, 2트랙 ${pr.b}/${GRAD.perTrack}학점, 교양 ${pr.liberal}/${lib}학점.`,
     ].join("\n");
+  }
+
+  const course = findCourse(q);
+  if (course) {
+    const offers = COURSE_INDEX.get(course)!;
+    const mine = offers.filter((o) => o.track === c.a.name || o.track === c.b.name);
+    const others = offers.filter((o) => !mine.includes(o));
+    const inPlan = rm.flatMap((sem, k) => sem.filter((it) => it.name === course).map((it) => ({ k, it })));
+    return [
+      `'${course}' 개설 정보예요 (공식 교육과정 기준).`,
+      ...mine.map((o) => `• ${o.track}: ${o.term} ${REQ_NAME[o.req]}`),
+      ...(others.length ? [`• 다른 트랙 ${others.length}곳에서도 열려요: ${others.slice(0, 4).map((o) => `${o.track}(${o.term})`).join(", ")}${others.length > 4 ? " 등" : ""}`] : []),
+      inPlan.length
+        ? `내 로드맵에는 ${inPlan.map(({ k, it }) => `${SEM_NAMES[k]}${state.checks[it.id] ? "(이수)" : ""}`).join(", ")}에 들어 있어요.`
+        : mine.length
+          ? "내 로드맵에는 아직 없어요. 전공선택이라 다른 과목 대신 넣어도 돼요."
+          : "내 두 트랙의 교육과정에는 없는 과목이에요.",
+    ].join("\n");
+  }
+
+  if (/캡스톤|졸업작품|종합설계|졸업논문/.test(q)) {
+    const caps = [c.a, c.b].flatMap((t) => t.courses.filter((x) => /캡스톤|종합설계|졸업|포트폴리오|프로젝트/.test(x.name) && x.req !== "선").map((x) => `• ${t.name}: ${x.name} (${x.term} ${REQ_NAME[x.req]})`));
+    const opt = [c.a, c.b].flatMap((t) => t.courses.filter((x) => /캡스톤|종합설계/.test(x.name) && x.req === "선").map((x) => `${x.name}(${x.term})`));
+    return [
+      caps.length ? "내 두 트랙의 필수 캡스톤·졸업 과목이에요." : "내 두 트랙에는 전공필수로 지정된 캡스톤 과목이 없어요.",
+      ...caps,
+      ...(opt.length ? [`전공선택 캡스톤: ${opt.slice(0, 5).join(", ")}${opt.length > 5 ? " 등" : ""}`] : []),
+      "트랙별 졸업요건(졸업작품·논문 등)은 각 트랙 홈페이지에서 한 번 더 확인하세요.",
+    ].join("\n");
+  }
+
+  if (/토익|toeic|오픽|opic|어학 ?성적|영어 ?점수|어학 ?점수/i.test(q)) {
+    const eng = (ctx.recs ?? []).filter((r) => r.themes.includes("english")).slice(0, 3);
+    return [
+      "학교 공통 졸업요건(교과 130학점, 비교과 800pt)에는 어학 성적 기준이 없어요. 다만 트랙별 졸업요건에 따로 있을 수 있으니 내 트랙 홈페이지의 '트랙졸업요건'을 확인하세요.",
+      ...(eng.length ? ["영어 실력을 키우는 교내 비교과:", ...eng.map((r) => `• ${r.p.t} (${r.p.p ? r.p.p + "pt" : "포인트 공지 확인"})`)] : []),
+    ].join("\n");
+  }
+
+  if (/학점|얼마나 들었|진행/.test(q)) {
+    return `체크한 항목 기준으로 1트랙 ${pr.a}/${GRAD.perTrack}학점, 2트랙 ${pr.b}/${GRAD.perTrack}학점, 교양 ${pr.liberal}학점, 비교과 ${pr.extraPts}/${GRAD.extraPoints}pt예요.`;
+  }
+
+  if (/휴학|복학|편입|전과|성적|장학/.test(q)) {
+    return "휴학·복학·장학 같은 학사 규정은 이 앱 데이터에 없어요. 학사운영팀 공지나 종합정보시스템에서 확인하세요. 트랙 선택·변경, 졸업요건, 학기당 수강 학점, 재수강, 비교과, 과목 개설 학기는 여기서 물어볼 수 있어요.";
   }
 
   if (/2027|개편|이름/.test(q)) {
@@ -136,5 +226,11 @@ export function answer(q: string, ctx: AdvisorContext): string {
       : "선택한 두 트랙은 2027학년도 개편 명칭 변경 대상이 아니에요.";
   }
 
-  return "이렇게 물어보세요: 추천 이유, 이번 학기 할 일, 비교과 포인트, 트랙 변경(트랙 이름 포함), 졸업요건, 1트랙 선택 범위.";
+  return [
+    "질문을 이해하지 못했어요. 이렇게 물어볼 수 있어요.",
+    "• 과목: \"자료구조 몇 학기에 들어?\", \"캡스톤디자인 언제 들어?\"",
+    "• 트랙: \"왜 이 조합을 추천했어?\", \"빅데이터트랙으로 바꾸면?\", \"1트랙은 어디서 골라야 해?\"",
+    "• 졸업·비교과: \"졸업하려면 뭐가 필요해?\", \"비교과 포인트 얼마나 남았어?\", \"영어 관련 비교과 추천해줘\"",
+    "• 계획: \"이번 학기에 뭐 해야 해?\", \"지금까지 몇 학점 들었어?\", \"한 학기에 몇 학점까지 들어?\"",
+  ].join("\n");
 }
