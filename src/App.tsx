@@ -3,7 +3,9 @@ import { Chat } from "./components/Chat";
 import { Diagnose } from "./components/Diagnose";
 import { Recommend } from "./components/Recommend";
 import { RoadmapView } from "./components/RoadmapView";
+import { Rules } from "./components/Rules";
 import { Summary } from "./components/Summary";
+import { ENTRIES } from "./data/tracks";
 import { buildRoadmap, checksBefore, nowIndex, progress } from "./lib/roadmap";
 import { combos } from "./lib/scoring";
 import { clearState, loadState, saveState } from "./lib/storage";
@@ -13,12 +15,14 @@ const TABS = [
   { id: "diagnose", label: "진로 진단" },
   { id: "recommend", label: "트랙 추천" },
   { id: "roadmap", label: "학기별 로드맵" },
-  { id: "chat", label: "AI 상담" },
+  { id: "chat", label: "상담" },
+  { id: "rules", label: "졸업요건·제도" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
 export const SAMPLE_PROFILE: Profile = {
-  entry: "FREE",
+  entry: "상상력인재학부",
+  day: "주간",
   year: 1,
   sem: 2,
   interests: ["데이터·AI", "경영·마케팅", "콘텐츠·미디어"],
@@ -32,8 +36,15 @@ function sampleState(): AppState {
     profile: SAMPLE_PROFILE,
     pick: [top.a.name, top.b.name],
     checks: checksBefore(buildRoadmap(top, SAMPLE_PROFILE), nowIndex(SAMPLE_PROFILE)),
+    myPoints: null,
     sample: true,
   };
+}
+
+function initialState(): AppState {
+  const s = loadState();
+  if (s && ENTRIES.some((e) => e.id === s.profile.entry) && combos(s.profile).length) return s;
+  return sampleState();
 }
 
 function readTab(): TabId {
@@ -42,7 +53,7 @@ function readTab(): TabId {
 }
 
 export default function App() {
-  const [state, setState] = useState<AppState>(() => loadState() ?? sampleState());
+  const [state, setState] = useState<AppState>(initialState);
   const [tab, setTab] = useState<TabId>(readTab);
 
   useEffect(() => {
@@ -57,7 +68,7 @@ export default function App() {
   const top = list.slice(0, 3);
   const pick: Combo = (state.pick && list.find((c) => c.a.name === state.pick![0] && c.b.name === state.pick![1])) || top[0];
   const roadmap = useMemo(() => buildRoadmap(pick, state.profile), [pick, state.profile]);
-  const prog = progress(roadmap, state.checks);
+  const prog = progress(roadmap, state.checks, state.myPoints);
   const now = nowIndex(state.profile);
 
   const go = (t: TabId) => {
@@ -68,7 +79,7 @@ export default function App() {
     const first = combos(p)[0];
     const rm = buildRoadmap(first, p);
     const keepChecks = nowIndex(p) === now;
-    setState({ profile: p, pick: [first.a.name, first.b.name], checks: keepChecks ? state.checks : checksBefore(rm, nowIndex(p)), sample: false });
+    setState({ ...state, profile: p, pick: [first.a.name, first.b.name], checks: keepChecks ? state.checks : checksBefore(rm, nowIndex(p)), sample: false });
     go("recommend");
   }
 
@@ -122,19 +133,26 @@ export default function App() {
         <main>
           {tab === "diagnose" && <Diagnose key={JSON.stringify(state.profile)} profile={state.profile} onSubmit={submitProfile} />}
           {tab === "recommend" && <Recommend profile={state.profile} top={top} pick={pick} onPick={choose} />}
-          {tab === "roadmap" && <RoadmapView pick={pick} roadmap={roadmap} checks={state.checks} now={now} onToggle={toggle} />}
+          {tab === "roadmap" && (
+            <RoadmapView
+              pick={pick}
+              roadmap={roadmap}
+              checks={state.checks}
+              now={now}
+              myPoints={state.myPoints}
+              onToggle={toggle}
+              onPoints={(v) => setState({ ...state, myPoints: v, sample: false })}
+            />
+          )}
           {tab === "chat" && <Chat key={pick.a.name + pick.b.name} ctx={{ state, pick, top, roadmap }} />}
+          {tab === "rules" && <Rules />}
 
           <footer className="note">
             <p>
-              <b>데이터 안내</b> 트랙 목록은 한성대 2026학년도 학부(과)·트랙 안내 기준입니다(실기 기반 예술학부 전공 제외). 디지털콘텐츠·가상현실트랙은 2027학년도 11월 트랙 선택부터
-              지능형실감미디어공학트랙으로 이름이 바뀝니다.
+              <b>데이터 기준</b> 트랙·학과 목록과 교과목은 2026년 11월 한성대학교 각 트랙 홈페이지의 교육과정소개(일부는 교과목 로드맵)에서 가져왔어요. 예술학부와 글로벌인재대학은
+              제외했어요. 졸업요건과 트랙 제도는 '졸업요건·제도' 탭의 공식 출처를 따릅니다.
             </p>
-            <p>
-              교과목과 비교과 포인트는 <b>예시</b>이며, 각 트랙의 교과목 로드맵·졸업요건과 연동할 예정입니다. HSP 100pt는 e-Advisor 공모전 공지 기준이고, 비교과 800pt 졸업요건은
-              2016학년도 이후 입학자 안내 기준으로 현재 기준 확인이 필요합니다.
-            </p>
-            <p>추천은 참고용입니다. 최종 트랙 선택은 지도교수 상담 후 결정하세요. 입력한 내용은 이 브라우저에만 저장됩니다.</p>
+            <p>관심 분야·직무·강점 태그와 추천 점수는 참고용이에요. 최종 트랙 선택은 지도교수 상담 후 결정하세요. 입력한 내용은 이 브라우저에만 저장됩니다.</p>
           </footer>
         </main>
       </div>

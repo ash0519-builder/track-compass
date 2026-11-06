@@ -1,11 +1,13 @@
 import type { AppState } from "../types";
 
-const KEY = "track-compass-v1";
+const KEY = "track-compass-v2";
 
 export function loadState(): AppState | null {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as AppState) : null;
+    if (!raw) return null;
+    const s = JSON.parse(raw) as AppState;
+    return s && s.profile && typeof s.profile.day === "string" ? s : null;
   } catch {
     return null;
   }

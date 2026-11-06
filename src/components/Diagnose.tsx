@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { COLLEGES, TAG_LABELS, TAG_LIMITS, TAGS, type TagGroup } from "../data/tracks";
-import type { CollegeKey, Entry, Profile } from "../types";
+import { ENTRIES, findEntry, TAG_LABELS, TAG_LIMITS, TAGS, type TagGroup } from "../data/tracks";
+import type { DayNight, Profile } from "../types";
 
 const GROUPS: TagGroup[] = ["interests", "jobs", "strengths"];
 
@@ -8,6 +8,7 @@ export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p
   const [draft, setDraft] = useState<Profile>(profile);
   const [warn, setWarn] = useState("");
   const ok = draft.interests.length > 0 && draft.jobs.length > 0;
+  const entry = findEntry(draft.entry);
 
   function toggle(group: TagGroup, tag: string) {
     const cur = draft[group];
@@ -24,28 +25,42 @@ export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p
     setWarn("");
   }
 
+  function changeEntry(id: string) {
+    const e = findEntry(id);
+    setDraft({ ...draft, entry: id, day: e.days.includes(draft.day) ? draft.day : e.days[0] });
+  }
+
   function submit(e: FormEvent) {
     e.preventDefault();
     if (ok) onSubmit(draft);
   }
 
   return (
-    <section className="panel on" id="p-diagnose">
+    <section className="panel" id="p-diagnose">
       <div className="panel-head">
         <div>
           <h2>나에 대해 알려주세요</h2>
-          <p>입학 모집단위에 따라 1트랙을 고를 수 있는 범위가 달라집니다. 분야·직무·강점은 여러 개 고를 수 있어요.</p>
+          <p>제1트랙은 입학한 모집단위 안에서 골라야 해서, 모집단위와 주·야를 먼저 정확히 골라주세요.</p>
         </div>
       </div>
       <form className="form-grid" onSubmit={submit}>
-        <div className="row3">
+        <div className="row4">
           <label className="f" htmlFor="entry">
             입학 모집단위
-            <select id="entry" value={draft.entry} onChange={(e) => setDraft({ ...draft, entry: e.target.value as Entry })}>
-              <option value="FREE">상상력인재학부 (유형 1: 모든 트랙에서 선택)</option>
-              {(Object.keys(COLLEGES) as CollegeKey[]).map((k) => (
-                <option key={k} value={k}>
-                  {COLLEGES[k]} (유형 2: 1트랙은 단과대학 안에서)
+            <select id="entry" value={draft.entry} onChange={(e) => changeEntry(e.target.value)}>
+              {ENTRIES.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="f" htmlFor="day">
+            주·야
+            <select id="day" value={draft.day} onChange={(e) => setDraft({ ...draft, day: e.target.value as DayNight })}>
+              {entry.days.map((d) => (
+                <option key={d} value={d}>
+                  {d}
                 </option>
               ))}
             </select>
@@ -68,6 +83,7 @@ export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p
             </select>
           </label>
         </div>
+        <p className="hint">예술학부(실기 전공)와 글로벌인재대학은 트랙 선택 방식이 달라 목록에서 뺐어요.</p>
 
         {GROUPS.map((g) => (
           <fieldset key={g}>
@@ -77,14 +93,7 @@ export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p
             </legend>
             <div className="chips">
               {TAGS[g].map((t, k) => (
-                <button
-                  type="button"
-                  key={t}
-                  id={`chip-${g}-${k}`}
-                  className="chip"
-                  aria-pressed={draft[g].includes(t)}
-                  onClick={() => toggle(g, t)}
-                >
+                <button type="button" key={t} id={`chip-${g}-${k}`} className="chip" aria-pressed={draft[g].includes(t)} onClick={() => toggle(g, t)}>
                   {t}
                 </button>
               ))}
@@ -97,10 +106,7 @@ export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p
             추천 받기
           </button>
           <span className="hint" role="status">
-            {warn ||
-              (ok
-                ? `선택: 관심 ${draft.interests.length} · 직무 ${draft.jobs.length} · 강점 ${draft.strengths.length}`
-                : "관심 분야와 희망 직무를 하나 이상 골라주세요.")}
+            {warn || (ok ? `선택: 관심 ${draft.interests.length} · 직무 ${draft.jobs.length} · 강점 ${draft.strengths.length}` : "관심 분야와 희망 직무를 하나 이상 골라주세요.")}
           </span>
         </div>
       </form>

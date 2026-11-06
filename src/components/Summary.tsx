@@ -1,11 +1,12 @@
-import { COLLEGES, EXTRA_GOAL } from "../data/tracks";
+import { GRAD } from "../data/rules";
+import { findEntry } from "../data/tracks";
 import type { Progress } from "../lib/roadmap";
 import { toPoints } from "../lib/scoring";
 import type { Combo, Profile } from "../types";
 
-export const entryName = (p: Profile) => (p.entry === "FREE" ? "상상력인재학부 (유형 1)" : `${COLLEGES[p.entry]} (유형 2)`);
+export const entryName = (p: Profile) => `${findEntry(p.entry).name} · ${p.day}`;
 
-function Meter({ label, value, max, unit, tone }: { label: string; value: number; max: number; unit: string; tone: "a" | "b" | "x" }) {
+function Meter({ label, value, max, unit, tone }: { label: string; value: number; max: number; unit: string; tone: "a" | "b" | "g" | "x" }) {
   const w = max ? Math.min(100, Math.round((value / max) * 100)) : 0;
   return (
     <div>
@@ -47,9 +48,10 @@ export function Summary({ pick, profile, prog }: { pick: Combo; profile: Profile
         </div>
       </div>
       <div className="card meters">
-        <Meter label={`1트랙 과목 (${pick.a.name})`} value={prog.a.done} max={prog.a.total} unit="과목" tone="a" />
-        <Meter label={`2트랙 과목 (${pick.b.name})`} value={prog.b.done} max={prog.b.total} unit="과목" tone="b" />
-        <Meter label={`비교과포인트 (졸업요건 ${EXTRA_GOAL}pt)`} value={prog.extraPts} max={EXTRA_GOAL} unit="pt" tone="x" />
+        <Meter label="1트랙 전공" value={prog.a} max={GRAD.perTrack} unit="학점" tone="a" />
+        <Meter label="2트랙 전공" value={prog.b} max={GRAD.perTrack} unit="학점" tone="b" />
+        <Meter label="교양" value={prog.liberal} max={GRAD.liberal} unit="학점" tone="g" />
+        <Meter label="비교과포인트" value={prog.extraPts} max={GRAD.extraPoints} unit="pt" tone="x" />
       </div>
     </section>
   );

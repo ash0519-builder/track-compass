@@ -1,7 +1,7 @@
-import { TRACKS } from "../data/tracks";
+import { findEntry, TRACKS } from "../data/tracks";
 import type { Combo, Profile, Track } from "../types";
 
-/** 가중치: 관심 분야 50%, 희망 직무 30%, 강점 20% (기획서 5장) */
+/** 가중치: 관심 분야 50%, 희망 직무 30%, 강점 20% */
 export const WEIGHTS = { interests: 0.5, jobs: 0.3, strengths: 0.2 } as const;
 /** 서로 다른 단과대학 조합에 더하는 융합 가산점 */
 export const FUSION_BONUS = 0.1;
@@ -15,51 +15,56 @@ export function overlap(user: readonly string[], track: readonly string[]): numb
 
 /** S(t): 트랙 적합도 (0~1) */
 export function fit(t: Track, p: Profile): number {
-  return (
-    WEIGHTS.interests * overlap(p.interests, t.interests) +
-    WEIGHTS.jobs * overlap(p.jobs, t.jobs) +
-    WEIGHTS.strengths * overlap(p.strengths, t.strengths)
-  );
+  return WEIGHTS.interests * overlap(p.interests, t.interests) + WEIGHTS.jobs * overlap(p.jobs, t.jobs) + WEIGHTS.strengths * overlap(p.strengths, t.strengths);
 }
 
 export function makeCombo(a: Track, b: Track, p: Profile): Combo {
   const sa = fit(a, p);
   const sb = fit(b, p);
   const base = (sa + sb) / 2;
-  const bonus = a.col !== b.col ? FUSION_BONUS : 0;
+  const bonus = a.college !== b.college ? FUSION_BONUS : 0;
   return { a, b, sa, sb, base, bonus, total: base + bonus };
 }
 
 /**
- * C(a,b): 두 트랙 조합 점수 순으로 정렬한 전체 후보.
- * - 상상력인재학부(유형 1): 모든 트랙에서 두 개를 고르고, 적합도가 높은 쪽을 1트랙으로 둔다.
- * - 그 외(유형 2): 1트랙은 입학한 단과대학 안에서, 2트랙은 전체에서 고른다.
+ * 제1트랙 후보 (전공트랙제도 기준)
+ * - 상상력인재학부: 예술학부·글로벌인재대학을 뺀 모든 트랙 (이 앱의 목록에는 둘 다 없음)
+ * - 그 외: 소속 모집단위(학부·학과) 안의 트랙
+ * - 주·야: 본인 주야에 개설된 트랙만
+ * - 제2트랙 전용(창업트랙)은 제외
  */
+export function firstCandidates(p: Profile, tracks: Track[] = TRACKS): Track[] {
+  const entry = findEntry(p.entry);
+  return tracks.filter((t) => {
+    if (t.secondOnly) return false;
+    if (!sameShift(t, p)) return false;
+    return entry.free ? true : t.school === entry.id;
+  });
+}
+
+/** 제2트랙 후보: 제1트랙을 뺀 전체. 주·야 교차는 제2트랙에서만 허용된다. */
+export function secondCandidates(first: Track, tracks: Track[] = TRACKS): Track[] {
+  return tracks.filter((t) => t !== first);
+}
+
+export const sameShift = (t: Track, p: Profile) => t.offer === "주야" || t.offer === p.day;
+
+/** C(a,b) 순으로 정렬한 전체 조합. a=제1트랙, b=제2트랙 */
 export function combos(p: Profile, tracks: Track[] = TRACKS): Combo[] {
+  const entry = findEntry(p.entry);
   const out: Combo[] = [];
-  for (let x = 0; x < tracks.length; x++) {
-    for (let y = 0; y < tracks.length; y++) {
-      if (x === y) continue;
-      let a = tracks[x];
-      let b = tracks[y];
-      if (p.entry === "FREE") {
-        if (x > y) continue;
-        if (fit(b, p) > fit(a, p)) [a, b] = [b, a];
-      } else if (a.col !== p.entry) {
-        continue;
-      }
+  for (const a of firstCandidates(p, tracks)) {
+    for (const b of secondCandidates(a, tracks)) {
+      // 상상력인재학부는 두 트랙 모두 자유이므로, 둘 다 1트랙 후보면 적합도가 높은 쪽을 1트랙으로 둔다
+      if (entry.free && !b.secondOnly && sameShift(b, p) && (fit(b, p) > fit(a, p) || (fit(b, p) === fit(a, p) && b.name < a.name))) continue;
       out.push(makeCombo(a, b, p));
     }
   }
-  return out.sort(
-    (m, n) => n.total - m.total || n.base - m.base || (m.a.name + m.b.name).localeCompare(n.a.name + n.b.name, "ko"),
-  );
+  return out.sort((m, n) => n.total - m.total || n.base - m.base || (m.a.name + m.b.name).localeCompare(n.a.name + n.b.name, "ko"));
 }
 
 export function rankedTracks(p: Profile, tracks: Track[] = TRACKS): { t: Track; s: number }[] {
-  return tracks
-    .map((t) => ({ t, s: fit(t, p) }))
-    .sort((m, n) => n.s - m.s || m.t.name.localeCompare(n.t.name, "ko"));
+  return tracks.map((t) => ({ t, s: fit(t, p) })).sort((m, n) => n.s - m.s || m.t.name.localeCompare(n.t.name, "ko"));
 }
 
 export const toPoints = (v: number) => Math.round(v * 100);
@@ -69,7 +74,7 @@ export function matches(t: Track, p: Profile) {
   return { interests: m(p.interests, t.interests), jobs: m(p.jobs, t.jobs), strengths: m(p.strengths, t.strengths) };
 }
 
-/** 추천 이유 문장 (AI 설명의 규칙 기반 버전) */
+/** 추천 이유 */
 export function reasonLines(c: Combo, p: Profile): string[] {
   const lines = [c.a, c.b].map((t, k) => {
     const mm = matches(t, p);
@@ -83,4 +88,17 @@ export function reasonLines(c: Combo, p: Profile): string[] {
   return lines;
 }
 
-export const findTrack = (name: string, tracks: Track[] = TRACKS) => tracks.find((t) => t.name === name) ?? null;
+/** 조합을 고를 때 알아야 할 학사 조건 */
+export function comboNotes(c: Combo, p: Profile): string[] {
+  const notes: string[] = [];
+  for (const t of [c.a, c.b]) {
+    if (t.prerequisite) notes.push(`${t.name}: 트랙기초 ${t.prerequisite} 성취 기준 충족 필요`);
+    if (t.rename2027) notes.push(`${t.name}: 2027학년도부터 ${t.rename2027}(으)로 명칭 변경`);
+  }
+  if (c.b.selectiveSecond) notes.push(`${c.b.name}를 제2트랙으로 고르면 주야별 모집인원 30% 이내 선발`);
+  if (c.b.secondOnly) notes.push(`${c.b.name}는 제2트랙으로만 선택 가능`);
+  if (!sameShift(c.b, p)) notes.push(`${c.b.name}는 ${c.b.offer}에만 개설되어 제2트랙 교차 선택으로만 가능`);
+  const shared = c.a.courses.filter((x) => x.req === "기" && c.b.courses.some((y) => y.name === x.name));
+  if (shared.length) notes.push(`두 트랙의 전공기초(${shared[0].name})가 같아 전공선택 1과목을 더 들어야 해요`);
+  return notes;
+}

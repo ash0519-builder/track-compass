@@ -32,11 +32,11 @@ export function Chat({ ctx }: { ctx: AdvisorContext }) {
   }
 
   return (
-    <section className="panel on" id="p-chat">
+    <section className="panel" id="p-chat">
       <div className="panel-head">
         <div>
           <h2>AI 상담</h2>
-          <p>내 추천 결과와 로드맵을 근거로 답합니다. 지금은 규칙 기반 응답이고, 본 개발에서 LLM과 학교 공식 자료 검색을 연결합니다.</p>
+          <p>한성대 공식 교육과정·학사 제도 데이터와 내 로드맵을 근거로 답해요. 트랙 변경이나 신청 일정은 학사 공지로 한 번 더 확인하세요.</p>
         </div>
       </div>
       <div className="chat card">
