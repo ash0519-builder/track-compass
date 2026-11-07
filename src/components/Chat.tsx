@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { answer, SUGGESTIONS, type AdvisorContext } from "../lib/advisor";
+import { planTitle } from "../lib/plan";
 
 interface Msg {
   who: "me" | "bot";
@@ -8,7 +9,7 @@ interface Msg {
 
 export function Chat({ ctx }: { ctx: AdvisorContext }) {
   const [msgs, setMsgs] = useState<Msg[]>(() => [
-    { who: "bot", text: `안녕하세요. ${ctx.pick.a.name} + ${ctx.pick.b.name} 조합으로 로드맵을 만들었어요. 궁금한 걸 물어보세요.` },
+    { who: "bot", text: `안녕하세요. ${planTitle(ctx.plan)} 계획으로 로드맵을 만들었어요. 궁금한 걸 물어보세요.` },
     { who: "me", text: "이번 학기에 뭐 해야 해?" },
     { who: "bot", text: answer("이번 학기에 뭐 해야 해?", ctx) },
   ]);

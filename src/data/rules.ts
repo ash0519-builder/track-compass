@@ -4,6 +4,7 @@
 export const SOURCES = {
   graduation: { label: "교과 및 비교과 교육과정 이수체계", url: "https://www.hansung.ac.kr/hansung/6217/subview.do" },
   trackSystem: { label: "전공트랙제도 (트랙 선택·변경)", url: "https://www.hansung.ac.kr/hansung/6213/subview.do" },
+  majorCredits: { label: "전공교육과정 이수학점", url: "https://www.hansung.ac.kr/hansung/6218/subview.do" },
   extracurricular: { label: "학생성공센터 비교과교육과정", url: "https://www.hansung.ac.kr/css/2639/subview.do" },
   hsp: { label: "HSP(High Success Project) 소개", url: "https://www.hansung.ac.kr/css/2649/subview.do" },
   certification: { label: "한성인재인증제", url: "https://www.hansung.ac.kr/css/2640/subview.do" },
@@ -33,6 +34,63 @@ export const GRAD = {
   /** 학점이월 포함 학기당 최대 취득 학점 (16학번 이후) */
   semesterMaxCarry: 21,
 } as const;
+
+/** 전공 하나의 최소 이수 학점 (17학번 이후, 전공교육과정 이수학점) */
+export interface MajorSpec {
+  /** 진행률·화면에 쓰는 이름 */
+  label: string;
+  total: number;
+  basic: number;
+  req: number;
+  /** 전공필수 중 req학점만 고름 (부전공). 아니면 교육과정의 전공필수를 모두 넣음 */
+  partialReq?: boolean;
+}
+
+export interface ModeRule {
+  name: string;
+  short: string;
+  desc: string;
+  /** 제1트랙(학과)이 '학과'여야 고를 수 있음 */
+  deptOnly: boolean;
+  a: MajorSpec;
+  b: MajorSpec | null;
+}
+
+/** 이수 방식별 학점 구성. 창의융합대학 학과 심화전공은 전공필수 21학점 */
+export const MODE_RULES: Record<"fusion1" | "fusion2" | "deep" | "undecided", ModeRule> = {
+  fusion1: {
+    name: "융합전공Ⅰ",
+    short: "두 트랙",
+    desc: "트랙·학과 2개를 각 39학점 (전공기초 3 + 전공필수 15 + 전공선택 21)",
+    deptOnly: false,
+    a: { label: "1트랙", total: 39, basic: 3, req: 15 },
+    b: { label: "2트랙", total: 39, basic: 3, req: 15 },
+  },
+  fusion2: {
+    name: "융합전공Ⅱ",
+    short: "학과 + 부전공",
+    desc: "학과 57학점 (기초 3 + 필수 15 + 선택 39) + 다른 트랙·학과 부전공 21학점 (기초 3 + 필수 12 + 선택 6)",
+    deptOnly: true,
+    a: { label: "학과 전공", total: 57, basic: 3, req: 15 },
+    b: { label: "부전공", total: 21, basic: 3, req: 12, partialReq: true },
+  },
+  deep: {
+    name: "심화전공",
+    short: "제2트랙 없음",
+    desc: "학과 하나를 78학점 (기초 3 + 필수 15 + 선택 60, 창의융합대학 학과는 필수 21 + 선택 54)",
+    deptOnly: true,
+    a: { label: "심화전공", total: 78, basic: 3, req: 15 },
+    b: null,
+  },
+  undecided: {
+    name: "제2트랙 미정",
+    short: "1트랙만 먼저",
+    desc: "제2트랙을 정하기 전까지 제1트랙 39학점만 먼저 계획",
+    deptOnly: false,
+    a: { label: "1트랙", total: 39, basic: 3, req: 15 },
+    b: null,
+  },
+};
 
 /** 24학번 이후 교양필수 (2026-1 학업이수가이드 기준). 권장 학기는 예시 배치. */
 export const LIBERAL_REQUIRED: { sem: number; name: string; credit: number }[] = [
@@ -74,7 +132,7 @@ export const TRACK_RULES: { title: string; body: string }[] = [
   { title: "트랙 선택 시기", body: "2학년 진학 시 제1트랙과 제2트랙을 선택합니다. 신청 일정은 학사 공지(종합정보시스템)로 안내됩니다." },
   { title: "제1트랙", body: "소속 모집단위(학부) 안에서 반드시 1개 이상 선택합니다. 제2트랙은 다른 단과대학·학부에서도 자유롭게 고를 수 있고, 두 트랙은 학위·수강신청에서 동등합니다." },
   { title: "상상력인재학부", body: "2학년 진학 시 고른 제1트랙의 학부로 소속이 바뀝니다." },
-  { title: "학과·전공 입학생", body: "뷰티디자인매니지먼트학과와 창의융합대학 학과 입학생은 제1전공을 본인 학과로 하고, 제2트랙은 자유롭게 고르거나 단일전공을 선택할 수 있습니다." },
+  { title: "학과·전공 입학생", body: "뷰티디자인매니지먼트학과와 창의융합대학 학과 입학생은 제1전공을 본인 학과로 하고, 제2트랙을 자유롭게 고르거나, 제2트랙 없이 심화전공(학과 78학점) 또는 융합전공Ⅱ(학과 57학점 + 부전공 21학점)를 선택할 수 있습니다." },
   { title: "창의융합대학 학과를 제2트랙으로", body: "모집인원 주야별 30% 이내로 선발합니다." },
   { title: "컴퓨터공학부 트랙", body: "2023학번부터 트랙기초 과목(컴퓨터프로그래밍 또는 웹프로그래밍기초) 성취 기준을 충족한 학생만 해당 트랙을 선택할 수 있습니다." },
   { title: "주·야 교차", body: "주간은 주간 트랙만, 야간은 야간 트랙만 선택하는 것이 원칙입니다. 예외로 주간 학생은 야간 전용(게임그래픽디자인트랙)을, 야간 학생은 주간 전용 트랙을 제2트랙으로 고를 수 있습니다." },

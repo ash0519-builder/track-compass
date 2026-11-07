@@ -1,4 +1,4 @@
-import { GRAD, RENAMES_2027, SOURCES, TRACK_RULES } from "../data/rules";
+import { GRAD, MODE_RULES, RENAMES_2027, SOURCES, TRACK_RULES } from "../data/rules";
 
 export function Rules() {
   return (
@@ -70,6 +70,31 @@ export function Rules() {
           <p className="src">
             출처: <a href={SOURCES.extracurricular.url}>{SOURCES.extracurricular.label}</a> · <a href={SOURCES.hsp.url}>{SOURCES.hsp.label}</a> ·{" "}
             <a href={SOURCES.certification.url}>{SOURCES.certification.label}</a>
+          </p>
+        </div>
+
+        <div className="card wide">
+          <h3>전공 이수 방식 (17학번 이후)</h3>
+          <table className="kv">
+            <tbody>
+              {(["fusion1", "fusion2", "deep"] as const).map((m) => (
+                <tr key={m}>
+                  <th>{MODE_RULES[m].name}</th>
+                  <td>
+                    {MODE_RULES[m].desc}
+                    {MODE_RULES[m].deptOnly ? " · 학과 소속" : ""}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <ul>
+            <li>트랙제로 입학한 학생은 2학년 진학 시 제1트랙과 제2트랙을 모두 골라야 해요.</li>
+            <li>학과 소속 학생은 제2트랙 없이 심화전공(78학점)이나 학과 57학점 + 부전공 21학점(융합전공Ⅱ)으로도 이수할 수 있어요.</li>
+            <li>어느 방식이든 부전공(21학점)을 더 붙이거나 Micro Degree를 추가할 수 있어요.</li>
+          </ul>
+          <p className="src">
+            출처: <a href={SOURCES.majorCredits.url}>{SOURCES.majorCredits.label}</a> · <a href={SOURCES.trackSystem.url}>{SOURCES.trackSystem.label}</a>
           </p>
         </div>
 

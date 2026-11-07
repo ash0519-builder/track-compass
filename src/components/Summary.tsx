@@ -1,8 +1,9 @@
-import { GRAD, liberalTotal } from "../data/rules";
+import { GRAD, liberalTotal, MODE_RULES } from "../data/rules";
 import { findEntry, SEM_NAMES } from "../data/tracks";
 import { admissionOf, nowIndex, semesterCredits, type Progress } from "../lib/roadmap";
+import { planParts } from "../lib/plan";
 import { toPoints } from "../lib/scoring";
-import type { Combo, Profile, Roadmap } from "../types";
+import type { Plan, Profile, Roadmap } from "../types";
 
 export const entryName = (p: Profile) => `${findEntry(p.entry).name} · ${p.day} · ${String(admissionOf(p)).slice(2)}학번`;
 
@@ -24,7 +25,49 @@ function Meter({ label, value, max, unit, tone }: { label: string; value: number
   );
 }
 
-export function Summary({ pick, profile, prog, roadmap }: { pick: Combo; profile: Profile; prog: Progress; roadmap: Roadmap }) {
+function PlanLine({ plan }: { plan: Plan }) {
+  if (plan.mode === "fusion1" && plan.combo)
+    return (
+      <div className="combo-line">
+        <span className="pill">1트랙</span>
+        {plan.a.name}
+        <span className="plus">+</span>
+        <span className="pill b">2트랙</span>
+        {plan.b!.name}
+        <span className="pill n">{toPoints(plan.combo.total)} / 110점</span>
+      </div>
+    );
+  if (plan.mode === "fusion2")
+    return (
+      <div className="combo-line">
+        <span className="pill">학과</span>
+        {plan.a.name}
+        <span className="plus">+</span>
+        <span className="pill b">부전공</span>
+        {plan.b!.name}
+        <span className="pill n">{MODE_RULES.fusion2.name}</span>
+      </div>
+    );
+  if (plan.mode === "deep")
+    return (
+      <div className="combo-line">
+        <span className="pill">학과</span>
+        {plan.a.name}
+        <span className="pill n">{MODE_RULES.deep.name} · 제2트랙 없음</span>
+      </div>
+    );
+  return (
+    <div className="combo-line">
+      <span className="pill">1트랙</span>
+      {plan.a.name}
+      <span className="plus">+</span>
+      <span className="pill b">2트랙</span>
+      <span className="muted">미정</span>
+    </div>
+  );
+}
+
+export function Summary({ plan, profile, prog, roadmap }: { plan: Plan; profile: Profile; prog: Progress; roadmap: Roadmap }) {
   const now = nowIndex(profile);
   const cur = roadmap[now] ?? [];
   const credits = semesterCredits(cur);
@@ -33,15 +76,8 @@ export function Summary({ pick, profile, prog, roadmap }: { pick: Combo; profile
   return (
     <section className="summary" aria-label="내 현황 요약">
       <div className="card">
-        <h2>선택한 트랙 조합</h2>
-        <div className="combo-line">
-          <span className="pill">1트랙</span>
-          {pick.a.name}
-          <span className="plus">+</span>
-          <span className="pill b">2트랙</span>
-          {pick.b.name}
-          <span className="pill n">{toPoints(pick.total)} / 110점</span>
-        </div>
+        <h2>{plan.mode === "fusion1" ? "선택한 트랙 조합" : "선택한 전공 계획"}</h2>
+        <PlanLine plan={plan} />
         <div className="profile-line">
           <span>{entryName(profile)}</span>
           <span>·</span>
@@ -59,8 +95,15 @@ export function Summary({ pick, profile, prog, roadmap }: { pick: Combo; profile
         </p>
       </div>
       <div className="card meters">
-        <Meter label="1트랙 전공" value={prog.a} max={GRAD.perTrack} unit="학점" tone="a" />
-        <Meter label="2트랙 전공" value={prog.b} max={GRAD.perTrack} unit="학점" tone="b" />
+        {planParts(plan).map((x) => (
+          <Meter key={x.kind} label={x.spec.label === "1트랙" || x.spec.label === "2트랙" ? `${x.spec.label} 전공` : x.spec.label} value={x.kind === "a" ? prog.a : prog.b} max={x.spec.total} unit="학점" tone={x.kind} />
+        ))}
+        {plan.mode === "undecided" && (
+          <div className="meter-label pending">
+            <span>2트랙 전공</span>
+            <b>미정 · 정하면 {GRAD.perTrack}학점 추가</b>
+          </div>
+        )}
         <Meter label="교양" value={prog.liberal} max={liberalTotal(admissionOf(profile))} unit="학점" tone="g" />
         <Meter label="비교과포인트" value={prog.extraPts} max={GRAD.extraPoints} unit="pt" tone="x" />
       </div>

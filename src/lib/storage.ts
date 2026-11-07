@@ -1,6 +1,7 @@
 import { ENTRIES, TAG_LIMITS } from "../data/tracks";
 import { ADMISSION_YEARS } from "../data/rules";
 import type { AppState, DayNight } from "../types";
+import { isMode } from "./plan";
 import { normalizeChecks } from "./roadmap";
 
 const KEY = "track-compass-v2";
@@ -20,7 +21,10 @@ export function sanitizeState(raw: unknown): AppState | null {
   const admission = typeof p.admission === "number" && ADMISSION_YEARS.includes(p.admission) ? p.admission : undefined;
   const picks: Record<string, number> = {};
   for (const [k, v] of Object.entries(s?.extraPicks ?? {})) if (typeof v === "number") picks[k] = clamp(v, 0, 7, 0);
-  const pick = Array.isArray(s?.pick) && s.pick.length === 2 && s.pick.every((x) => typeof x === "string") ? (s.pick as [string, string]) : null;
+  const pick =
+    Array.isArray(s?.pick) && s.pick.length === 2 && typeof s.pick[0] === "string" && (typeof s.pick[1] === "string" || s.pick[1] === null)
+      ? ([s.pick[0], s.pick[1]] as [string, string | null])
+      : null;
   const myPoints = typeof s?.myPoints === "number" && Number.isFinite(s.myPoints) ? Math.max(0, Math.round(s.myPoints)) : null;
   return {
     profile: {
@@ -35,6 +39,7 @@ export function sanitizeState(raw: unknown): AppState | null {
       extraThemes: strings(p.extraThemes, 3),
     },
     pick,
+    mode: isMode(s?.mode) ? s.mode : "fusion1",
     checks: normalizeChecks(s?.checks),
     extraPicks: picks,
     myPoints,

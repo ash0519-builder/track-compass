@@ -1,6 +1,7 @@
-import { GRAD, liberalTotal, SOURCES } from "../data/rules";
+import { GRAD, liberalTotal, MODE_RULES, SOURCES } from "../data/rules";
 import { COLLEGES, findEntry, SEM_NAMES, TRACKS } from "../data/tracks";
-import type { AppState, Combo, Roadmap } from "../types";
+import type { AppState, Combo, Plan, Roadmap } from "../types";
+import { planParts, planTitle, planTracks } from "./plan";
 import { eul, eun } from "./korean";
 import { admissionOf, nowIndex, progress, semesterCredits, unitText } from "./roadmap";
 import { statusOf, THEMES, type Scored } from "./programs";
@@ -8,7 +9,7 @@ import { comboNotes, firstCandidates, fit, makeCombo, reasonLines, toPoints } fr
 
 export interface AdvisorContext {
   state: AppState;
-  pick: Combo;
+  plan: Plan;
   top: Combo[];
   roadmap: Roadmap;
   recs?: Scored[];
@@ -43,14 +44,43 @@ export const SUGGESTIONS = [
   "졸업하려면 뭐가 필요해?",
   "캡스톤디자인 언제 들어?",
   "1트랙은 어디서 골라야 해?",
+  "2트랙 안 해도 돼?",
 ];
 
 /**
  * 상담 응답 (규칙 기반).
  * 답변 근거는 앱에 담긴 한성대 공식 교육과정·학사 제도 데이터와 학생의 로드맵이다.
  */
+const pr0 = (ctx: AdvisorContext) => progress(ctx.roadmap, ctx.state.checks, ctx.state.myPoints);
+
+/** 제2트랙 없이 이수하는 방법 안내 */
+function modeAnswer(ctx: AdvisorContext): string {
+  const p = ctx.state.profile;
+  const entry = findEntry(p.entry);
+  const dept = entry.dept || ctx.plan.a.kind === "학과";
+  const rules = (["deep", "fusion2", "fusion1"] as const).map((m) => `• ${MODE_RULES[m].name}: ${MODE_RULES[m].desc}`);
+  return (
+    dept
+      ? [`학과 소속이면 제2트랙 없이도 이수할 수 있어요 (출처: ${SOURCES.majorCredits.label}).`, ...rules]
+      : [
+          `트랙제로 입학한 학생은 2학년 진학 시 제1트랙과 제2트랙을 모두 골라야 해요 (출처: ${SOURCES.trackSystem.label}).`,
+          "심화전공(학과 78학점)과 융합전공Ⅱ(학과 57학점 + 부전공 21학점)는 학과 소속 학생이 고르는 방식이에요.",
+          "아직 제2트랙을 못 정했다면 '트랙 추천' 탭의 직접 고르기에서 '제2트랙 아직 안 정함'으로 제1트랙만 먼저 계획할 수 있어요.",
+        ]
+  )
+    .concat([`지금 계획: ${planTitle(ctx.plan)}. '트랙 추천' 탭의 직접 고르기에서 바꿀 수 있어요.`])
+    .join("\n");
+}
+
 export function answer(q: string, ctx: AdvisorContext): string {
-  const { state, pick: c, top, roadmap: rm } = ctx;
+  const { state, plan, top, roadmap: rm } = ctx;
+  const c = plan.combo;
+  const mine = planTracks(plan);
+  const roleB = plan.mode === "fusion2" ? "부전공" : "제2트랙";
+  const majorProgress = [
+    ...planParts(plan).map((x) => `${x.spec.label} ${x.kind === "a" ? pr0(ctx).a : pr0(ctx).b}/${x.spec.total}학점`),
+    ...(plan.mode === "undecided" ? ["2트랙 미정"] : []),
+  ].join(", ");
   const p = state.profile;
   const entry = findEntry(p.entry);
   const pr = progress(rm, state.checks, state.myPoints);
@@ -61,18 +91,32 @@ export function answer(q: string, ctx: AdvisorContext): string {
   const themeAsked = THEMES.find((t) => q.includes(t.label.split("·")[0]) || (t.id === "english" && /영어|외국어|어학/.test(q)));
   const asksPrograms = !!ctx.recs && (/비교과|프로그램/.test(q) || !!themeAsked) && !/조합|포인트|pt|남았|졸업|점수|성적|토익/i.test(q);
 
-  if (/바꾸|변경|바꿔|대신/.test(q) || (named && named !== c.a && named !== c.b)) {
+  if (/2트랙.*(안|없|말|필수|꼭|미정)|단일 ?전공|심화 ?전공|부전공|이수 ?방식|융합전공/.test(q) && !named) return modeAnswer(ctx);
+
+  if (/바꾸|변경|바꿔|대신/.test(q) || (named && !mine.includes(named))) {
     if (!named) {
-      const alt = top[1];
+      const alt = top.find((x) => !c || x.a !== c.a || x.b !== c.b);
       return [
         "어느 트랙으로 바꿀지 트랙 이름을 함께 알려주세요.",
-        alt ? `참고로 지금 기준 2순위 조합은 ${alt.a.name} + ${alt.b.name} (${toPoints(alt.total)}점)이에요.` : "",
+        alt ? `참고로 지금 기준 추천 조합은 ${alt.a.name} + ${alt.b.name} (${toPoints(alt.total)}점)이에요.` : "",
         "트랙 변경은 3~7학기 재학생이 2학년 2학기 직전 학기부터 신청할 수 있어요.",
       ].filter(Boolean).join("\n");
     }
-    if (named === c.a || named === c.b) return `${named.name}${eun(named.name)} 이미 선택한 조합에 들어 있어요. 다른 트랙 이름으로 물어보세요.`;
+    if (mine.includes(named)) return `${named.name}${eun(named.name)} 이미 지금 계획에 들어 있어요. 다른 트랙 이름으로 물어보세요.`;
 
-    const canBeFirst = firstCandidates(p).includes(named);
+    if (!c || !plan.b) {
+      // 제2트랙이 없는 계획: 물어본 트랙을 제2트랙으로 넣어 본다
+      const next = makeCombo(plan.a, named, p);
+      return [
+        `지금은 ${MODE_RULES[plan.mode].name} 계획이라 제2트랙이 없어요. ${named.name}${eul(named.name)} 제2트랙으로 넣으면:`,
+        `• 조합: ${next.a.name} + ${next.b.name} → ${toPoints(next.total)}점 (적합도 ${named.name} ${toPoints(fit(named, p))}점)`,
+        plan.mode === "deep" ? `• 융합전공Ⅰ(두 트랙 각 ${GRAD.perTrack}학점)로 바뀌어 ${plan.a.name} 전공은 ${GRAD.perTrack}학점만 채우면 돼요.` : "",
+        ...comboNotes(next, p).map((n) => `※ ${n}`),
+        "'트랙 추천' 탭의 직접 고르기에서 바꿀 수 있어요.",
+      ].filter(Boolean).join("\n");
+    }
+
+    const canBeFirst = firstCandidates(p).includes(named) && plan.mode !== "fusion2";
     const fa = fit(c.a, p);
     const fb = fit(c.b, p);
     let replace: "a" | "b" = canBeFirst && fa < fb ? "a" : "b";
@@ -82,7 +126,7 @@ export function answer(q: string, ctx: AdvisorContext): string {
     const doneOut = rm.flat().filter((it) => state.checks[it.id] && it.kind === replace).map((it) => it.name);
 
     const lines = [
-      `${replace === "a" ? "제1트랙" : "제2트랙"}인 ${out.name} 자리에 ${named.name}${eul(named.name)} 넣어 계산해 봤어요.`,
+      `${replace === "a" ? "제1트랙" : roleB}인 ${out.name} 자리에 ${named.name}${eul(named.name)} 넣어 계산해 봤어요.`,
       `• 새 조합: ${next.a.name} + ${next.b.name} → ${toPoints(next.total)}점 (지금 ${toPoints(c.total)}점)`,
       `• 적합도: ${named.name} ${toPoints(fit(named, p))}점, ${out.name} ${toPoints(fit(out, p))}점`,
       doneOut.length
@@ -98,14 +142,22 @@ export function answer(q: string, ctx: AdvisorContext): string {
 
   if (/1트랙|제1|어디서|모집단위|유형/.test(q)) {
     if (entry.free) return "상상력인재학부는 제1트랙을 거의 모든 트랙에서 고를 수 있어요(예술학부·글로벌인재대학 제외). 2학년 진학 시 고른 제1트랙의 학부로 소속이 바뀌어요.";
-    if (entry.dept) return `${entry.name} 입학생은 제1전공을 본인 학과로 하고, 제2트랙은 자유롭게 고르거나 단일전공을 선택할 수 있어요.`;
+    if (entry.dept) return `${entry.name} 입학생은 제1전공을 본인 학과로 하고, 제2트랙을 자유롭게 고르거나(융합전공Ⅰ) 부전공(융합전공Ⅱ)·심화전공(제2트랙 없음)을 선택할 수 있어요.`;
     const list = firstCandidates(p).map((t) => t.name);
     return `${entry.name} 입학생은 제1트랙을 학부 안에서 골라야 해요 (${p.day} 기준 ${list.length}개): ${list.join(", ")}.\n제2트랙은 다른 단과대학에서도 자유롭게 고를 수 있어요.`;
   }
 
   if (/왜|이유|추천/.test(q) && !asksPrograms) {
+    if (!c) {
+      return [
+        `지금 계획은 ${planTitle(plan)}이에요 (${MODE_RULES[plan.mode].name}).`,
+        `• ${plan.a.name} 적합도 ${toPoints(fit(plan.a, p))}점`,
+        top[0] ? `• 두 트랙으로 한다면 추천 1순위는 ${top[0].a.name} + ${top[0].b.name} (${toPoints(top[0].total)}점)이에요.` : "",
+        "점수는 관심 분야 50%, 희망 직무 30%, 강점 20%로 계산했어요.",
+      ].filter(Boolean).join("\n");
+    }
     return [
-      `지금 조합은 ${c.a.name} + ${c.b.name}이고 ${toPoints(c.total)}점이에요.`,
+      `지금 조합은 ${c.a.name} + ${c.b.name}${plan.mode === "fusion2" ? "(부전공)" : ""}이고 ${toPoints(c.total)}점이에요.`,
       ...reasonLines(c, p).map((l) => `• ${l}`),
       ...comboNotes(c, p).map((n) => `※ ${n}`),
       "점수는 관심 분야 50%, 희망 직무 30%, 강점 20%로 계산했어요.",
@@ -167,36 +219,36 @@ export function answer(q: string, ctx: AdvisorContext): string {
     const lib = liberalTotal(admissionOf(state.profile));
     return [
       `한성대 졸업요건 (16학번 이후, 출처: ${SOURCES.graduation.label})`,
-      `• 교과 ${GRAD.total}학점: 전공 ${GRAD.major}학점(트랙당 ${GRAD.perTrack}학점 = ${GRAD.perTrackDetail}), 교양 ${lib}학점(${admissionOf(state.profile)}학번 기준), 자유선택 ${GRAD.free}학점`,
+      `• 교과 ${GRAD.total}학점: 전공 ${GRAD.major}학점(${MODE_RULES[plan.mode === "undecided" ? "fusion1" : plan.mode].name}: ${MODE_RULES[plan.mode === "undecided" ? "fusion1" : plan.mode].desc}), 교양 ${lib}학점(${admissionOf(state.profile)}학번 기준), 자유선택 ${GRAD.free}학점`,
       `• 비교과포인트 ${GRAD.extraPoints}pt (미충족 시 수료 처리)`,
       `• 트랙별 졸업요건(캡스톤·졸업작품 등)은 각 트랙 홈페이지에서 확인`,
-      `지금 체크 기준: 1트랙 ${pr.a}/${GRAD.perTrack}학점, 2트랙 ${pr.b}/${GRAD.perTrack}학점, 교양 ${pr.liberal}/${lib}학점.`,
+      `지금 체크 기준: ${majorProgress}, 교양 ${pr.liberal}/${lib}학점.`,
     ].join("\n");
   }
 
   const course = findCourse(q);
   if (course) {
     const offers = COURSE_INDEX.get(course)!;
-    const mine = offers.filter((o) => o.track === c.a.name || o.track === c.b.name);
-    const others = offers.filter((o) => !mine.includes(o));
+    const own = offers.filter((o) => mine.some((t) => t.name === o.track));
+    const others = offers.filter((o) => !own.includes(o));
     const inPlan = rm.flatMap((sem, k) => sem.filter((it) => it.name === course).map((it) => ({ k, it })));
     return [
       `'${course}' 개설 정보예요 (공식 교육과정 기준).`,
-      ...mine.map((o) => `• ${o.track}: ${o.term} ${REQ_NAME[o.req]}`),
+      ...own.map((o) => `• ${o.track}: ${o.term} ${REQ_NAME[o.req]}`),
       ...(others.length ? [`• 다른 트랙 ${others.length}곳에서도 열려요: ${others.slice(0, 4).map((o) => `${o.track}(${o.term})`).join(", ")}${others.length > 4 ? " 등" : ""}`] : []),
       inPlan.length
         ? `내 로드맵에는 ${inPlan.map(({ k, it }) => `${SEM_NAMES[k]}${state.checks[it.id] ? "(이수)" : ""}`).join(", ")}에 들어 있어요.`
-        : mine.length
+        : own.length
           ? "내 로드맵에는 아직 없어요. 전공선택이라 다른 과목 대신 넣어도 돼요."
-          : "내 두 트랙의 교육과정에는 없는 과목이에요.",
+          : "내 전공 교육과정에는 없는 과목이에요.",
     ].join("\n");
   }
 
   if (/캡스톤|졸업작품|종합설계|졸업논문/.test(q)) {
-    const caps = [c.a, c.b].flatMap((t) => t.courses.filter((x) => /캡스톤|종합설계|졸업|포트폴리오|프로젝트/.test(x.name) && x.req !== "선").map((x) => `• ${t.name}: ${x.name} (${x.term} ${REQ_NAME[x.req]})`));
-    const opt = [c.a, c.b].flatMap((t) => t.courses.filter((x) => /캡스톤|종합설계/.test(x.name) && x.req === "선").map((x) => `${x.name}(${x.term})`));
+    const caps = mine.flatMap((t) => t.courses.filter((x) => /캡스톤|종합설계|졸업|포트폴리오|프로젝트/.test(x.name) && x.req !== "선").map((x) => `• ${t.name}: ${x.name} (${x.term} ${REQ_NAME[x.req]})`));
+    const opt = mine.flatMap((t) => t.courses.filter((x) => /캡스톤|종합설계/.test(x.name) && x.req === "선").map((x) => `${x.name}(${x.term})`));
     return [
-      caps.length ? "내 두 트랙의 필수 캡스톤·졸업 과목이에요." : "내 두 트랙에는 전공필수로 지정된 캡스톤 과목이 없어요.",
+      caps.length ? "내 전공의 필수 캡스톤·졸업 과목이에요." : "내 전공에는 전공필수로 지정된 캡스톤 과목이 없어요.",
       ...caps,
       ...(opt.length ? [`전공선택 캡스톤: ${opt.slice(0, 5).join(", ")}${opt.length > 5 ? " 등" : ""}`] : []),
       "트랙별 졸업요건(졸업작품·논문 등)은 각 트랙 홈페이지에서 한 번 더 확인하세요.",
@@ -212,7 +264,7 @@ export function answer(q: string, ctx: AdvisorContext): string {
   }
 
   if (/학점|얼마나 들었|진행/.test(q)) {
-    return `체크한 항목 기준으로 1트랙 ${pr.a}/${GRAD.perTrack}학점, 2트랙 ${pr.b}/${GRAD.perTrack}학점, 교양 ${pr.liberal}학점, 비교과 ${pr.extraPts}/${GRAD.extraPoints}pt예요.`;
+    return `체크한 항목 기준으로 ${majorProgress}, 교양 ${pr.liberal}학점, 비교과 ${pr.extraPts}/${GRAD.extraPoints}pt예요.`;
   }
 
   if (/휴학|복학|편입|전과|성적|장학/.test(q)) {
@@ -220,16 +272,16 @@ export function answer(q: string, ctx: AdvisorContext): string {
   }
 
   if (/2027|개편|이름/.test(q)) {
-    const r = [c.a, c.b].filter((t) => t.rename2027 || COLLEGES[t.college].rename2027);
+    const r = mine.filter((t) => t.rename2027 || COLLEGES[t.college].rename2027);
     return r.length
       ? r.map((t) => `• ${t.name}: ${t.rename2027 ? `→ ${t.rename2027}` : ""}${COLLEGES[t.college].rename2027 ? ` (단과대학 ${COLLEGES[t.college].name} → ${COLLEGES[t.college].rename2027})` : ""}`).join("\n")
-      : "선택한 두 트랙은 2027학년도 개편 명칭 변경 대상이 아니에요.";
+      : "선택한 전공은 2027학년도 개편 명칭 변경 대상이 아니에요.";
   }
 
   return [
     "질문을 이해하지 못했어요. 이렇게 물어볼 수 있어요.",
     "• 과목: \"자료구조 몇 학기에 들어?\", \"캡스톤디자인 언제 들어?\"",
-    "• 트랙: \"왜 이 조합을 추천했어?\", \"빅데이터트랙으로 바꾸면?\", \"1트랙은 어디서 골라야 해?\"",
+    "• 트랙: \"왜 이 조합을 추천했어?\", \"빅데이터트랙으로 바꾸면?\", \"1트랙은 어디서 골라야 해?\", \"2트랙 안 해도 돼?\"",
     "• 졸업·비교과: \"졸업하려면 뭐가 필요해?\", \"비교과 포인트 얼마나 남았어?\", \"영어 관련 비교과 추천해줘\"",
     "• 계획: \"이번 학기에 뭐 해야 해?\", \"지금까지 몇 학점 들었어?\", \"한 학기에 몇 학점까지 들어?\"",
   ].join("\n");

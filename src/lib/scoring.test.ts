@@ -6,6 +6,7 @@ import type { AppState, Profile } from "../types";
 import { answer } from "./advisor";
 import { buildRoadmap, checksBefore, normalizeChecks, nowIndex, planTrack, progress, semesterCredits, trackCredits } from "./roadmap";
 import { sanitizeState } from "./storage";
+import { planOf, planParts, planTracks, resolvePlan } from "./plan";
 import { cleanProgramName, recommendPrograms } from "./programs";
 import { combos, firstCandidates, fit, overlap } from "./scoring";
 
@@ -66,7 +67,7 @@ test("창업트랙은 제1트랙이 될 수 없다", () => {
 
 test("로드맵: 트랙당 39학점 이상 계획(공개 과목이 부족한 트랙 제외)", () => {
   const c = combos(P)[0];
-  const rm = buildRoadmap(c, P);
+  const rm = buildRoadmap(planOf(c), P);
   assert.equal(rm.length, 8);
   assert.ok(trackCredits(rm, "a") >= GRAD.perTrack);
   assert.ok(trackCredits(rm, "b") >= GRAD.perTrack);
@@ -86,11 +87,11 @@ test("같은 전공기초를 가진 두 트랙은 학점을 한 번만 센다", 
 test("진행률과 상담 응답", () => {
   const list = combos(P);
   const c = list[0];
-  const rm = buildRoadmap(c, P);
+  const rm = buildRoadmap(planOf(c), P);
   const state: AppState = { profile: P, pick: [c.a.name, c.b.name], checks: checksBefore(rm, nowIndex(P)), myPoints: null, sample: true };
   const pr = progress(rm, state.checks, null);
   assert.ok(pr.a > 0 && pr.liberal > 0);
-  const ctx = { state, pick: c, top: list.slice(0, 3), roadmap: rm };
+  const ctx = { state, plan: planOf(c), top: list.slice(0, 3), roadmap: rm };
   assert.match(answer("빅데이터트랙으로 바꾸면 어떻게 돼?", ctx), /빅데이터트랙을 넣어/);
   assert.match(answer("졸업하려면 뭐가 필요해?", ctx), /130학점/);
   assert.match(answer("비교과 포인트 얼마나 남았어?", { ...ctx, state: { ...state, myPoints: 300 } }), /300pt, 졸업까지 500pt/);
@@ -99,7 +100,7 @@ test("진행률과 상담 응답", () => {
 test("비교과 추천: 영어를 고르면 영어·외국어 프로그램이 상위에 온다", async () => {
   const { recommendPrograms } = await import("./programs");
   const p: Profile = { ...P, extraThemes: ["english"] };
-  const recs = recommendPrograms(p, combos(p)[0]);
+  const recs = recommendPrograms(p, planTracks(planOf(combos(p)[0])));
   const top10 = recs.slice(0, 10);
   assert.ok(top10.filter((r) => r.themes.includes("english")).length >= 5, top10.map((r) => r.p.t).join(" / "));
 });
@@ -107,9 +108,9 @@ test("비교과 추천: 영어를 고르면 영어·외국어 프로그램이 �
 test("비교과 추천: 담은 프로그램과 추천 프로그램이 로드맵에 들어간다", async () => {
   const { recommendPrograms } = await import("./programs");
   const c = combos(P)[0];
-  const recs = recommendPrograms(P, c);
+  const recs = recommendPrograms(P, [c.a, c.b]);
   const pickId = recs[0].p.id;
-  const rm = buildRoadmap(c, P, { picks: { [String(pickId)]: 4 }, recs, now: 1 });
+  const rm = buildRoadmap(planOf(c), P, { picks: { [String(pickId)]: 4 }, recs, now: 1 });
   assert.ok(rm[4].some((it) => it.programId === pickId && !it.auto));
   assert.ok(rm[2].some((it) => it.auto));
   assert.ok(!rm[0].some((it) => it.auto));
@@ -120,19 +121,19 @@ test("비교과 추천: 담은 프로그램과 추천 프로그램이 로드맵�
 test("상담: 영어 비교과 질문에 프로그램을 답한다", async () => {
   const { recommendPrograms } = await import("./programs");
   const c = combos(P)[0];
-  const recs = recommendPrograms(P, c);
-  const rm = buildRoadmap(c, P);
+  const recs = recommendPrograms(P, [c.a, c.b]);
+  const rm = buildRoadmap(planOf(c), P);
   const state: AppState = { profile: P, pick: [c.a.name, c.b.name], checks: {}, myPoints: null, sample: true };
-  const out = answer("영어 관련 비교과 추천해줘", { state, pick: c, top: [c], roadmap: rm, recs });
+  const out = answer("영어 관련 비교과 추천해줘", { state, plan: planOf(c), top: [c], roadmap: rm, recs });
   assert.match(out, /영어·외국어/);
-  assert.match(answer("왜 이 조합을 추천했어?", { state, pick: c, top: [c], roadmap: rm, recs }), /지금 조합은/);
+  assert.match(answer("왜 이 조합을 추천했어?", { state, plan: planOf(c), top: [c], roadmap: rm, recs }), /지금 조합은/);
 });
 
 test("모든 조합·학번에서 기본 로드맵은 학기당 18학점을 넘지 않고, id가 겹치지 않는다", () => {
   for (const admission of [2026, 2024, 2020, 2016]) {
     for (const a of TRACKS) {
       for (const b of TRACKS.filter((t, k) => t !== a && k % 3 === 0)) {
-        const rm = buildRoadmap({ a, b } as never, { ...P, admission });
+        const rm = buildRoadmap(planOf({ a, b } as never), { ...P, admission });
         const loads = rm.map(semesterCredits);
         assert.ok(Math.max(...loads) <= GRAD.semesterMax, `${admission} ${a.name}+${b.name} ${loads.join(",")}`);
         const ids = rm.flat().map((it) => it.id);
@@ -148,15 +149,15 @@ test("지난 학기를 하나도 체크하지 않으면 다시 넣지 않고, �
   const p: Profile = { ...P, year: 3, sem: 1, admission: 2024 };
   const c = combos(p)[0];
   const now = nowIndex(p);
-  const none = buildRoadmap(c, p, { now, checks: {} });
+  const none = buildRoadmap(planOf(c), p, { now, checks: {} });
   assert.equal(none.flat().filter((it) => it.carryOf).length, 0);
-  const base = buildRoadmap(c, p);
+  const base = buildRoadmap(planOf(c), p);
   const all = checksBefore(base, now);
   const req = base.slice(0, now).flat().filter((it) => (it.kind === "a" || it.kind === "b") && it.req === "필" && it.unit > 0);
   const miss = req[req.length - 1];
   const checks = { ...all };
   delete checks[miss.id];
-  const rm = buildRoadmap(c, p, { now, checks });
+  const rm = buildRoadmap(planOf(c), p, { now, checks });
   const carried = rm.flatMap((sem, k) => sem.filter((it) => it.carryOf).map((it) => ({ it, k })));
   assert.equal(carried.length, 1);
   assert.equal(carried[0].it.carryOf, miss.id);
@@ -191,7 +192,7 @@ test("불러온 상태를 다듬는다 (잘못된 학년·주야·태그 개수)
 test("상담: 학기당 학점·재수강 질문에 답한다", () => {
   const state: AppState = { profile: P, pick: null, checks: {}, myPoints: null, sample: false };
   const top = combos(P);
-  const ctx = { state, pick: top[0], top: top.slice(0, 3), roadmap: buildRoadmap(top[0], P) };
+  const ctx = { state, plan: planOf(top[0]), top: top.slice(0, 3), roadmap: buildRoadmap(planOf(top[0]), P) };
   assert.match(answer("한 학기에 몇 학점까지 들어?", ctx), /18학점/);
   assert.match(answer("재수강 규정 알려줘", ctx), /12학점/);
   assert.doesNotMatch(answer("비교과 포인트 학기당 얼마나 인정돼?", ctx), /수강신청은/);
@@ -214,8 +215,81 @@ test("비교과 프로그램 이름에서 운영 시기 표기를 깔끔하게 �
 test("자동 추천 비교과는 같은 이름을 두 번 넣지 않는다", () => {
   for (const p of [P, { ...P, entry: "컴퓨터공학부", interests: ["프로그래밍"], jobs: ["개발자"] }] as Profile[]) {
     const c = combos(p)[0];
-    const rm = buildRoadmap(c, p, { recs: recommendPrograms(p, c), now: nowIndex(p) });
+    const rm = buildRoadmap(planOf(c), p, { recs: recommendPrograms(p, [c.a, c.b]), now: nowIndex(p) });
     const names = rm.flat().filter((it) => it.auto).map((it) => it.name);
     assert.equal(new Set(names).size, names.length, names.join(" / "));
   }
+});
+
+const SEC: Profile = { ...P, entry: "융합보안학과", year: 2, sem: 1, admission: 2025, interests: ["보안"], jobs: ["보안전문가"], strengths: [] };
+const CSE: Profile = { ...P, entry: "컴퓨터공학부", year: 2, sem: 1, admission: 2025, interests: ["프로그래밍"], jobs: ["개발자"], strengths: [] };
+
+test("제2트랙 없이: 학과는 심화전공·부전공을 고를 수 있고, 트랙제 입학생은 '미정'만 가능하다", () => {
+  const top = combos(SEC)[0];
+  const deep = resolvePlan(SEC, ["융합보안학과", null], "deep", top);
+  assert.equal(deep.mode, "deep");
+  assert.equal(deep.b, null);
+  const minor = resolvePlan(SEC, ["융합보안학과", "웹공학트랙"], "fusion2", top);
+  assert.equal(minor.mode, "fusion2");
+  assert.equal(minor.b?.name, "웹공학트랙");
+  const cseTop = combos(CSE)[0];
+  assert.equal(resolvePlan(CSE, [cseTop.a.name, null], "deep", cseTop).mode, "fusion1", "트랙제 입학생 심화전공은 허용 안 함");
+  assert.equal(resolvePlan(CSE, [cseTop.a.name, null], "fusion2", cseTop).mode, "fusion1");
+  const und = resolvePlan(CSE, [cseTop.a.name, null], "undecided", cseTop);
+  assert.equal(und.mode, "undecided");
+  assert.equal(und.b, null);
+  // 제2트랙이 필요한 방식인데 제2트랙이 없으면 추천 1순위로
+  assert.equal(resolvePlan(CSE, [cseTop.a.name, null], "fusion1", cseTop).b?.name, cseTop.b.name);
+});
+
+test("심화전공 로드맵: 학과 하나로 78학점, 창의융합대학 학과는 전공필수 21학점 기준", () => {
+  const plan = resolvePlan(SEC, ["융합보안학과", null], "deep", combos(SEC)[0]);
+  const rm = buildRoadmap(plan, SEC);
+  assert.ok(trackCredits(rm, "a") >= 78, `계획 ${trackCredits(rm, "a")}학점`);
+  assert.equal(rm.flat().filter((it) => it.kind === "b").length, 0);
+  assert.equal(planParts(plan)[0].spec.req, 21);
+  assert.ok(Math.max(...rm.map(semesterCredits)) <= GRAD.semesterMax);
+  assert.ok(rm[1].some((it) => it.kind === "m" && it.name.includes("심화전공")));
+});
+
+test("융합전공Ⅱ 로드맵: 학과 57학점 + 부전공 21학점(전공필수 12학점 이상)", () => {
+  for (const b of TRACKS.filter((t) => t.name !== "AI응용학과")) {
+    const p: Profile = { ...SEC, entry: "AI응용학과" };
+    const plan = resolvePlan(p, ["AI응용학과", b.name], "fusion2", combos(p)[0]);
+    assert.equal(plan.mode, "fusion2", b.name);
+    const rm = buildRoadmap(plan, p);
+    assert.ok(trackCredits(rm, "a") >= 57, `학과 ${trackCredits(rm, "a")}`);
+    const minor = rm.flat().filter((it) => it.kind === "b");
+    const minorCredits = minor.reduce((s, it) => s + it.unit, 0);
+    assert.ok(minorCredits >= 21 || minor.some((it) => it.unit === 0), `${b.name} 부전공 ${minorCredits}`);
+    const req = minor.filter((it) => it.req === "필").reduce((s, it) => s + it.unit, 0);
+    const avail = b.courses.filter((c) => c.req === "필").reduce((s, c) => s + c.credit, 0);
+    assert.ok(req >= Math.min(12, avail), `${b.name} 부전공 필수 ${req}`);
+    assert.ok(minor.every((it) => it.sub.includes("부전공")));
+    assert.ok(Math.max(...rm.map(semesterCredits)) <= GRAD.semesterMax, `${b.name} ${rm.map(semesterCredits).join(",")}`);
+  }
+});
+
+test("제2트랙 미정 로드맵: 제1트랙 39학점만 넣고 '제2트랙 정하기'를 이번 학기에 넣는다", () => {
+  const top = combos(CSE)[0];
+  const plan = resolvePlan(CSE, [top.a.name, null], "undecided", top);
+  const now = nowIndex(CSE);
+  const rm = buildRoadmap(plan, CSE, { now });
+  assert.equal(rm.flat().filter((it) => it.kind === "b").length, 0);
+  assert.ok(trackCredits(rm, "a") >= 39);
+  assert.ok(rm[now].some((it) => it.kind === "m" && it.name === "제2트랙 정하기" && it.sub.includes("필수")));
+});
+
+test("상담: 제2트랙을 안 하는 경우를 학과·트랙제 입학생에 맞게 안내한다", () => {
+  const mk = (p: Profile, plan: ReturnType<typeof resolvePlan>) => {
+    const state: AppState = { profile: p, pick: [plan.a.name, plan.b?.name ?? null], mode: plan.mode, checks: {}, myPoints: null, sample: false };
+    return { state, plan, top: combos(p).slice(0, 3), roadmap: buildRoadmap(plan, p) };
+  };
+  const cse = mk(CSE, planOf(combos(CSE)[0]));
+  assert.match(answer("2트랙 안 해도 돼?", cse), /모두 골라야/);
+  const deep = mk(SEC, resolvePlan(SEC, ["융합보안학과", null], "deep", combos(SEC)[0]));
+  assert.match(answer("2트랙 안 해도 돼?", deep), /심화전공/);
+  assert.match(answer("왜 이 조합을 추천했어?", deep), /지금 계획은 융합보안학과 심화전공/);
+  assert.match(answer("웹공학트랙으로 바꾸면 어떻게 돼?", deep), /제2트랙으로 넣으면/);
+  assert.match(answer("졸업하려면 뭐가 필요해?", deep), /심화전공 \d+\/78학점/);
 });

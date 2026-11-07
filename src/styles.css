@@ -50,6 +50,10 @@ header.top .wrap { display: flex; align-items: center; justify-content: space-be
 .combo-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; }
 .combo-line .plus { color: var(--muted); font-weight: 400; }
 .now-line { margin: 12px 0 0; font-size: 13.5px; }
+.combo-line .muted { color: var(--muted); font-weight: 500; }
+.meter-label.pending b { color: var(--muted); font-weight: 500; }
+.manual .check { display: flex; gap: 8px; align-items: center; font-size: 13.5px; margin-top: 12px; cursor: pointer; }
+.manual .check input { width: 16px; height: 16px; }
 .now-line .warn { color: var(--carry); font-weight: 600; }
 .profile-line { margin-top: 8px; color: var(--muted); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 6px; }
 .meters { display: grid; gap: 10px; }
@@ -237,7 +241,9 @@ dl.rules dd { margin: 0; color: var(--ink); }
 .card.manual { display: grid; gap: 10px; margin-bottom: 14px; }
 .card.manual h3 { margin: 0 0 2px; font-size: 16px; }
 .card.manual .hint, .card.manual .warn { margin: 0; }
-.manual-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; }
+.manual-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.manual-row > * { min-width: 0; }
+.manual-row select { width: 100%; min-width: 0; text-overflow: ellipsis; }
 .card.notice { display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 14px; border-color: var(--extra); background: var(--extra-soft); }
 .card.notice p { margin: 4px 0 0; }
 .pill.carry { background: transparent; border: 1px dashed var(--carry); color: var(--carry); }
@@ -250,7 +256,7 @@ dl.rules dd { margin: 0; color: var(--ink); }
   nav.tabs a { flex: 1 1 calc(33% - 6px); text-align: center; border: 1px solid var(--line); border-radius: 8px; padding: 8px 6px; font-size: 13.5px; }
   nav.tabs a[aria-current="page"] { border-color: var(--accent); background: var(--accent-soft); }
   nav.tabs a .num { display: none; }
-  .manual-row { grid-template-columns: 1fr; }
+  .manual-row { grid-template-columns: minmax(0, 1fr); }
 }
 @media print {
   header.top .header-actions, nav.tabs, .file-actions, .points, .card.notice .btn, .prog-actions, .theme-tabs, .card.want, .note, form.ask, .suggest, .btn { display: none !important; }

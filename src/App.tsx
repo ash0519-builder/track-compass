@@ -7,11 +7,12 @@ import { RoadmapView } from "./components/RoadmapView";
 import { Rules } from "./components/Rules";
 import { Summary } from "./components/Summary";
 import { ENTRIES } from "./data/tracks";
+import { planKey, planOf, planTracks, resolvePlan } from "./lib/plan";
 import { buildRoadmap, checksBefore, nowIndex, progress } from "./lib/roadmap";
 import { recommendPrograms } from "./lib/programs";
-import { combos, validCombo } from "./lib/scoring";
+import { combos } from "./lib/scoring";
 import { clearState, loadState, sanitizeState, saveState } from "./lib/storage";
-import type { AppState, Combo, Profile } from "./types";
+import type { AppState, Combo, MajorMode, Profile } from "./types";
 
 const TABS = [
   { id: "diagnose", label: "진로 진단" },
@@ -40,7 +41,8 @@ function sampleState(): AppState {
   return {
     profile: SAMPLE_PROFILE,
     pick: [top.a.name, top.b.name],
-    checks: checksBefore(buildRoadmap(top, SAMPLE_PROFILE), nowIndex(SAMPLE_PROFILE)),
+    mode: "fusion1",
+    checks: checksBefore(buildRoadmap(planOf(top), SAMPLE_PROFILE), nowIndex(SAMPLE_PROFILE)),
     extraPicks: {},
     myPoints: null,
     sample: true,
@@ -72,13 +74,13 @@ export default function App() {
 
   const list = useMemo(() => combos(state.profile), [state.profile]);
   const top = list.slice(0, 3);
-  const pick: Combo = (state.pick && validCombo(state.profile, state.pick[0], state.pick[1])) || top[0];
+  const plan = useMemo(() => resolvePlan(state.profile, state.pick, state.mode, list[0]), [state.profile, state.pick, state.mode, list]);
   const now = nowIndex(state.profile);
-  const recs = useMemo(() => recommendPrograms(state.profile, pick), [state.profile, pick]);
+  const recs = useMemo(() => recommendPrograms(state.profile, planTracks(plan)), [state.profile, plan]);
   const picks = useMemo(() => state.extraPicks ?? {}, [state.extraPicks]);
   const roadmap = useMemo(
-    () => buildRoadmap(pick, state.profile, { picks, recs, now, checks: state.checks }),
-    [pick, state.profile, picks, recs, now, state.checks],
+    () => buildRoadmap(plan, state.profile, { picks, recs, now, checks: state.checks }),
+    [plan, state.profile, picks, recs, now, state.checks],
   );
   const prog = progress(roadmap, state.checks, state.myPoints);
 
@@ -87,13 +89,14 @@ export default function App() {
   };
 
   function submitProfile(p: Profile) {
-    // 이전에 고른 조합이 새 조건에서도 규칙에 맞으면 그대로 유지
-    const kept = state.pick && !state.sample ? validCombo(p, state.pick[0], state.pick[1]) : null;
-    const next = kept ?? combos(p)[0];
+    // 이전에 고른 계획이 새 조건에서도 규칙에 맞으면 그대로 유지 (맞지 않으면 추천 1순위)
+    const best = combos(p)[0];
+    const next = state.sample ? planOf(best) : resolvePlan(p, state.pick, state.mode, best);
     setState({
       ...state,
       profile: p,
-      pick: [next.a.name, next.b.name],
+      pick: [next.a.name, next.b?.name ?? null],
+      mode: next.mode,
       // 예시 데이터의 체크·담은 비교과는 버리고, 내 데이터는 유지 (지난 학기는 학생이 직접 체크)
       checks: state.sample ? {} : state.checks,
       extraPicks: state.sample ? {} : state.extraPicks,
@@ -133,7 +136,12 @@ export default function App() {
   }
 
   function choose(c: Combo) {
-    setState({ ...state, pick: [c.a.name, c.b.name] });
+    setState({ ...state, pick: [c.a.name, c.b.name], mode: "fusion1" });
+    go("roadmap");
+  }
+
+  function choosePlan(a: string, b: string | null, mode: MajorMode) {
+    setState({ ...state, pick: [a, b], mode });
     go("roadmap");
   }
 
@@ -169,7 +177,7 @@ export default function App() {
       </header>
 
       <div className="wrap">
-        <Summary pick={pick} profile={state.profile} prog={prog} roadmap={roadmap} />
+        <Summary plan={plan} profile={state.profile} prog={prog} roadmap={roadmap} />
 
         <nav className="tabs" aria-label="단계">
           {TABS.map((t, k) => (
@@ -182,10 +190,10 @@ export default function App() {
 
         <main>
           {tab === "diagnose" && <Diagnose key={JSON.stringify(state.profile)} profile={state.profile} onSubmit={submitProfile} />}
-          {tab === "recommend" && <Recommend profile={state.profile} top={top} pick={pick} onPick={choose} />}
+          {tab === "recommend" && <Recommend profile={state.profile} top={top} plan={plan} onPick={choose} onPlan={choosePlan} />}
           {tab === "roadmap" && (
             <RoadmapView
-              pick={pick}
+              plan={plan}
               roadmap={roadmap}
               checks={state.checks}
               now={now}
@@ -212,7 +220,7 @@ export default function App() {
               onThemes={(themes) => setState({ ...state, profile: { ...state.profile, extraThemes: themes }, sample: false })}
             />
           )}
-          {tab === "chat" && <Chat key={pick.a.name + pick.b.name} ctx={{ state, pick, top, roadmap, recs }} />}
+          {tab === "chat" && <Chat key={planKey(plan)} ctx={{ state, plan, top, roadmap, recs }} />}
           {tab === "rules" && <Rules />}
 
           <footer className="note">

@@ -1,26 +1,41 @@
 import { useRef, useState } from "react";
-import { GRAD } from "../data/rules";
+import { GRAD, MODE_RULES } from "../data/rules";
 import { SEM_NAMES } from "../data/tracks";
+import { planParts, planTitle, type PlanPart } from "../lib/plan";
 import { pastReviewed, pastUnchecked, semesterCredits, trackCredits, unitText } from "../lib/roadmap";
-import type { AppState, Combo, Roadmap, Track } from "../types";
+import type { AppState, Plan, Roadmap } from "../types";
 
-function TrackSource({ t, credits, tone }: { t: Track; credits: number; tone: string }) {
+function TrackSource({ part, roadmap }: { part: PlanPart; roadmap: Roadmap }) {
+  const { t, spec, kind } = part;
+  const credits = trackCredits(roadmap, kind);
+  const req = roadmap
+    .flat()
+    .filter((it) => it.kind === kind && !it.carryOf && it.req === "필")
+    .reduce((s, it) => s + it.unit, 0);
   return (
     <div className="src-row">
-      <span className={`pill ${tone}`}>{tone === "b" ? "2트랙" : "1트랙"}</span>
+      <span className={`pill ${kind === "b" ? "b" : ""}`}>{spec.label}</span>
       <a href={t.source} target="_blank" rel="noreferrer">
         {t.name} 공식 교육과정
       </a>
-      <span className={credits < GRAD.perTrack ? "warn" : "hint"}>
-        계획 {credits}학점{credits < GRAD.perTrack ? ` (공개된 과목으로는 ${GRAD.perTrack}학점에 못 미쳐요, 트랙에 확인)` : ""}
+      <span className={credits < spec.total ? "warn" : "hint"}>
+        계획 {credits} / {spec.total}학점{credits < spec.total ? " (공개된 과목으로는 모자라요, 트랙·학과에 확인)" : ""}
       </span>
+      {req < spec.req && <span className="warn">전공필수 {spec.req}학점 이상 필요 · 공개 교육과정 전공필수 {req}학점 (학과에 확인)</span>}
       {t.dataNote && <span className="hint">{t.dataNote}</span>}
     </div>
   );
 }
 
+const MODE_DESC: Record<Plan["mode"], string> = {
+  fusion1: `각 트랙 공식 교육과정에서 전공기초·전공필수를 모두 넣고, 전공선택으로 트랙당 ${GRAD.perTrack}학점을 채웠어요.`,
+  fusion2: `학과 교육과정으로 ${MODE_RULES.fusion2.a.total}학점(전공기초·전공필수 전부 + 전공선택), 부전공 트랙으로 ${MODE_RULES.fusion2.b!.total}학점(전공기초 + 전공필수 ${MODE_RULES.fusion2.b!.req}학점 + 전공선택)을 채웠어요.`,
+  deep: `제2트랙 없이 학과 교육과정 하나로 ${MODE_RULES.deep.a.total}학점(전공기초·전공필수 전부 + 전공선택)을 채웠어요.`,
+  undecided: `제2트랙을 정하기 전이라 제1트랙 ${GRAD.perTrack}학점만 넣었어요. 제2트랙을 정하면 ${GRAD.perTrack}학점이 더 들어가요.`,
+};
+
 export function RoadmapView({
-  pick,
+  plan,
   roadmap,
   checks,
   now,
@@ -31,7 +46,7 @@ export function RoadmapView({
   onExport,
   onImport,
 }: {
-  pick: Combo;
+  plan: Plan;
   roadmap: Roadmap;
   checks: AppState["checks"];
   now: number;
@@ -53,14 +68,15 @@ export function RoadmapView({
     <section className="panel" id="p-roadmap">
       <div className="panel-head">
         <div>
-          <h2>
-            {pick.a.name} + {pick.b.name} 로드맵
-          </h2>
-          <p>각 트랙 공식 교육과정에서 전공기초·전공필수를 모두 넣고, 전공선택으로 트랙당 {GRAD.perTrack}학점을 채웠어요. 이수한 항목을 체크하면 위쪽 진행률이 바뀝니다.</p>
+          <h2>{planTitle(plan)} 로드맵</h2>
+          <p>{MODE_DESC[plan.mode]} 이수한 항목을 체크하면 위쪽 진행률이 바뀝니다.</p>
         </div>
         <div className="legend">
-          <span className="pill">1트랙</span>
-          <span className="pill b">2트랙</span>
+          {planParts(plan).map((x) => (
+            <span key={x.kind} className={`pill ${x.kind === "b" ? "b" : ""}`}>
+              {x.spec.label}
+            </span>
+          ))}
           <span className="pill g">교양</span>
           <span className="pill x">비교과</span>
           <span className="pill carry">다시 들을 과목</span>
@@ -92,8 +108,16 @@ export function RoadmapView({
       )}
 
       <div className="card sources">
-        <TrackSource t={pick.a} credits={trackCredits(roadmap, "a")} tone="" />
-        <TrackSource t={pick.b} credits={trackCredits(roadmap, "b")} tone="b" />
+        {planParts(plan).map((x) => (
+          <TrackSource key={x.kind} part={x} roadmap={roadmap} />
+        ))}
+        {plan.mode === "undecided" && (
+          <div className="src-row">
+            <span className="pill b">2트랙</span>
+            <span>미정</span>
+            <a href="#recommend">트랙 추천에서 제2트랙 고르기</a>
+          </div>
+        )}
         <form
           className="points"
           onSubmit={(e) => {

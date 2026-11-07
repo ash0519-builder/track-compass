@@ -1,40 +1,53 @@
-import { CURRENT_YEAR, EXTRA_PLAN, GRAD, IMAGINANCE_FREE_ALT, LIBERAL_REQUIRED, liberalTotal } from "../data/rules";
+import { CURRENT_YEAR, EXTRA_PLAN, GRAD, IMAGINANCE_FREE_ALT, LIBERAL_REQUIRED, liberalTotal, MODE_RULES, type MajorSpec } from "../data/rules";
 import { findEntry, SEM_NAMES } from "../data/tracks";
 import { cleanProgramName, findProgram, type Scored } from "./programs";
-import type { AppState, Combo, Course, ItemKind, PlanItem, Profile, Roadmap, Track } from "../types";
+import type { AppState, Course, ItemKind, Plan, PlanItem, Profile, Roadmap, Track } from "../types";
+import { planParts } from "./plan";
 
 const REQ_LABEL = { 기: "전공기초", 필: "전공필수", 선: "전공선택" } as const;
 
 export interface TrackPlan {
   items: { course: Course; sem: number; shared: boolean }[];
   credits: number;
-  /** 공개된 교육과정만으로 39학점을 채우지 못함 */
+  /** 고른 전공필수 학점 */
+  reqCredits: number;
+  /** 공개된 교육과정만으로 목표 학점을 채우지 못함 */
   short: boolean;
+  /** 공개된 교육과정의 전공필수가 최소 학점보다 적음 */
+  reqShort: boolean;
 }
 
+const TRACK_SPEC: MajorSpec = MODE_RULES.fusion1.a;
+
 /**
- * 한 트랙에서 졸업요건(트랙당 39학점)을 채우는 과목을 고른다.
- * 전공기초·전공필수는 모두 넣고, 전공선택은 학기별로 고르게 골라 39학점을 채운다.
+ * 한 전공에서 졸업요건 학점(spec.total, 융합전공Ⅰ은 39학점)을 채우는 과목을 고른다.
+ * 전공기초·전공필수는 모두 넣고(부전공은 전공필수를 spec.req학점만), 전공선택은 학기별로 고르게 골라 채운다.
  * 다른 트랙에서 이미 넣은 과목은 학점을 한 번만 인정하므로 0학점으로 표시하고 전공선택을 더 넣는다.
  */
-export function planTrack(t: Track, taken: Set<string>, basicSem: number): TrackPlan {
+export function planTrack(t: Track, taken: Set<string>, basicSem: number, spec: MajorSpec = TRACK_SPEC): TrackPlan {
   const items: TrackPlan["items"] = [];
   let credits = 0;
+  let reqCredits = 0;
   const add = (course: Course, sem: number) => {
     const shared = taken.has(course.name);
     items.push({ course, sem, shared });
     if (!shared) credits += course.credit;
+    // 다른 전공과 겹친 과목은 학점을 한 번만 인정하므로 전공필수 학점에도 넣지 않는다
+    if (course.req === "필" && !shared) reqCredits += course.credit;
   };
 
   const basic = t.courses.find((c) => c.req === "기");
   if (basic) add(basic, basic.term.includes("·") ? basicSem : basic.sem);
-  for (const c of t.courses.filter((c) => c.req === "필")) add(c, c.sem);
+  for (const c of t.courses.filter((c) => c.req === "필")) {
+    if (spec.partialReq && reqCredits >= spec.req) break;
+    add(c, c.sem);
+  }
 
   // 전공선택: 2학년 이후 학기부터 학기마다 한 과목씩 돌아가며 고른다
   const pool = t.courses.filter((c) => c.req === "선" && !taken.has(c.name) && !items.some((i) => i.course.name === c.name));
   const order = [2, 3, 4, 5, 6, 7, 1, 0];
   const bySem = new Map(order.map((s) => [s, pool.filter((c) => c.sem === s)]));
-  while (credits < GRAD.perTrack) {
+  while (credits < spec.total) {
     let picked = false;
     for (const s of order) {
       const list = bySem.get(s)!;
@@ -42,11 +55,11 @@ export function planTrack(t: Track, taken: Set<string>, basicSem: number): Track
       if (!c) continue;
       add(c, c.sem);
       picked = true;
-      if (credits >= GRAD.perTrack) break;
+      if (credits >= spec.total) break;
     }
     if (!picked) break;
   }
-  return { items, credits, short: credits < GRAD.perTrack };
+  return { items, credits, reqCredits, short: credits < spec.total, reqShort: reqCredits < spec.req };
 }
 
 export interface ExtraOptions {
@@ -178,7 +191,7 @@ export function normalizeChecks(checks: AppState["checks"] | undefined): AppStat
   return out;
 }
 
-export function buildRoadmap(c: Combo, p: Profile, opts: ExtraOptions = {}): Roadmap {
+export function buildRoadmap(plan: Plan, p: Profile, opts: ExtraOptions = {}): Roadmap {
   const sems: PlanItem[][] = Array.from({ length: 8 }, () => []);
   const ids = new Set<string>();
   const push = (sem: number, kind: ItemKind, name: string, unit: number, sub: string, extra: Partial<PlanItem> = {}) => {
@@ -195,28 +208,35 @@ export function buildRoadmap(c: Combo, p: Profile, opts: ExtraOptions = {}): Roa
   // 교양
   for (const g of liberalItems(p)) push(g.sem, "g", g.name, g.credit, g.sub);
 
-  // 제1트랙 → 제2트랙 순서로 과목 배치
+  // 제1트랙(학과) → 제2트랙(부전공) 순서로 과목 배치
   const taken = new Set<string>();
-  const planA = planTrack(c.a, taken, 0);
-  planA.items.forEach((i) => taken.add(i.course.name));
-  const planB = planTrack(c.b, taken, 1);
-  for (const [plan, kind, t] of [
-    [planA, "a", c.a],
-    [planB, "b", c.b],
-  ] as const) {
-    for (const { course, sem, shared } of plan.items) {
+  for (const part of planParts(plan)) {
+    const tp = planTrack(part.t, taken, part.kind === "a" ? 0 : 1, part.spec);
+    tp.items.forEach((i) => taken.add(i.course.name));
+    const t = part.t;
+    for (const { course, sem, shared } of tp.items) {
       const tags = [
-        REQ_LABEL[course.req],
+        part.spec.label === "부전공" ? `부전공 ${REQ_LABEL[course.req]}` : REQ_LABEL[course.req],
         course.req === "기" && t.prerequisite ? "트랙 선택 조건: 성취 기준(B0 이상) 충족" : "",
         course.seasonal ? "계절학기" : "",
         shared ? "다른 트랙과 같은 과목: 학점 1회 인정" : "",
       ].filter(Boolean);
-      push(sem, kind, course.name, shared ? 0 : course.credit, `${t.name} · ${tags.join(" · ")}`, { req: course.req, unitLabel: shared ? "중복" : undefined });
+      push(sem, part.kind, course.name, shared ? 0 : course.credit, `${t.name} · ${tags.join(" · ")}`, { req: course.req, unitLabel: shared ? "중복" : undefined });
     }
   }
 
-  // 트랙 선택 신청 (2학년 진학 전)
-  push(1, "m", "제1·제2트랙 선택 신청", 0, "학사 공지 일정 확인 (종합정보시스템)", { unitLabel: "신청" });
+  // 전공 선택 신청 (2학년 진학 전)
+  if (plan.mode === "undecided") {
+    push(Math.max(1, now), "m", "제2트랙 정하기", 0, findEntry(p.entry).dept || plan.a.kind === "학과"
+      ? "제2트랙(융합전공Ⅰ)·부전공(융합전공Ⅱ)·심화전공 중 선택 · 정하면 로드맵에 들어가요"
+      : "트랙제 입학생은 2학년 진학 시 제2트랙 선택 필수 · 정하면 39학점이 로드맵에 들어가요", { unitLabel: "결정" });
+  } else if (plan.mode === "fusion2") {
+    push(1, "m", "학과 전공·부전공 신청", 0, "부전공은 학사 공지 신청 일정 확인 (종합정보시스템)", { unitLabel: "신청" });
+  } else if (plan.mode === "deep") {
+    push(1, "m", "심화전공(제2트랙 없음) 확인", 0, "학과 소속 학생 · 학사운영팀·학과 사무실에 이수 방식 확인", { unitLabel: "확인" });
+  } else {
+    push(1, "m", "제1·제2트랙 선택 신청", 0, "학사 공지 일정 확인 (종합정보시스템)", { unitLabel: "신청" });
+  }
 
   // 학기당 최대 수강 학점을 넘지 않게 고르게 나눈다 (학생 체크와 무관하게 항상 같은 결과)
   rebalance(sems, 0, CAP);

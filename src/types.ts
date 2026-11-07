@@ -101,9 +101,31 @@ export interface PlanItem {
 
 export type Roadmap = PlanItem[][];
 
+/**
+ * 전공 이수 방식 (한성대 '전공교육과정 이수학점')
+ * - fusion1 융합전공Ⅰ: 트랙·학과 2개 각 39학점
+ * - fusion2 융합전공Ⅱ: 학과 57학점 + 부전공 21학점
+ * - deep 심화전공: 학과 1개 78학점 (제2트랙 없음)
+ * - undecided: 제2트랙을 아직 정하지 않음 (제1트랙만 먼저 계획)
+ */
+export type MajorMode = "fusion1" | "fusion2" | "deep" | "undecided";
+
+/** 학생이 고른 전공 계획 */
+export interface Plan {
+  mode: MajorMode;
+  a: Track;
+  /** 제2트랙(융합전공Ⅰ) 또는 부전공(융합전공Ⅱ). 심화전공·미정이면 null */
+  b: Track | null;
+  /** 두 트랙 조합 점수 (제2트랙이 있을 때) */
+  combo: Combo | null;
+}
+
 export interface AppState {
   profile: Profile;
-  pick: [string, string] | null;
+  /** [제1트랙, 제2트랙·부전공]. 제2트랙이 없으면 두 번째는 null */
+  pick: [string, string | null] | null;
+  /** 전공 이수 방식 (없으면 융합전공Ⅰ) */
+  mode?: MajorMode;
   checks: Record<string, true>;
   /** 로드맵에 담은 비교과 프로그램: 프로그램 id → 학기 인덱스(0~7) */
   extraPicks?: Record<string, number>;

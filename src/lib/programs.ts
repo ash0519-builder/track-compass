@@ -1,5 +1,5 @@
 import { PROGRAMS, type Program } from "../data/programs";
-import type { Combo, Profile, Track } from "../types";
+import type { Profile, Track } from "../types";
 
 /** 비교과 카테고리. 영어·외국어처럼 학생이 찾는 주제로 묶는다. */
 export const THEMES = [
@@ -144,7 +144,7 @@ export interface Scored {
  * - 다른 학부·학과 전용으로 보이는 전공 프로그램 -4
  * - 인재인증 프로그램 +0.5, 포인트가 높을수록 최대 +2
  */
-export function scoreProgram(p: Program, profile: Profile, combo: Combo | null): Scored {
+export function scoreProgram(p: Program, profile: Profile, tracks: Track[] | null): Scored {
   const txt = textOf(p);
   const themes = themesOf(p);
   const reasons: string[] = [];
@@ -168,8 +168,8 @@ export function scoreProgram(p: Program, profile: Profile, combo: Combo | null):
   const hitS = profile.strengths.filter((s) => STRENGTH_KW[s]?.test(txt));
   if (hitS.length) score += hitS.length;
 
-  if (combo) {
-    const mine = [combo.a, combo.b];
+  if (tracks?.length) {
+    const mine = tracks;
     const named = mine.filter((t) => p.t.includes(short(t)) || p.k.includes(short(t)) || p.t.includes(t.name));
     if (named.length) {
       score += 6;
@@ -191,9 +191,9 @@ export function scoreProgram(p: Program, profile: Profile, combo: Combo | null):
   return { p, score, reasons, themes };
 }
 
-export function recommendPrograms(profile: Profile, combo: Combo | null, programs: Program[] = PROGRAMS): Scored[] {
+export function recommendPrograms(profile: Profile, tracks: Track[] | null, programs: Program[] = PROGRAMS): Scored[] {
   return programs
-    .map((p) => scoreProgram(p, profile, combo))
+    .map((p) => scoreProgram(p, profile, tracks))
     .sort((a, b) => b.score - a.score || b.p.p - a.p.p || b.p.s.localeCompare(a.p.s));
 }
 
