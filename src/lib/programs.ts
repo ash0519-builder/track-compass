@@ -3,8 +3,8 @@ import type { Profile, Track } from "../types";
 
 /** 비교과 카테고리. 영어·외국어처럼 학생이 찾는 주제로 묶는다. */
 export const THEMES = [
-  { id: "english", label: "영어·외국어", re: /영어|english|토익|toeic|toefl|ielts|opic|오픽|스피킹|speaking|외국어|중국어|일본어|어학연수|conversation|영어회화|global culture|통번역|open activity|원어민/i },
-  { id: "ai", label: "AI·SW·데이터", re: /\bai\b|ax|인공지능|파이썬|python|코딩|\bsw\b|소프트웨어|데이터|클라우드|빅데이터|해커톤|프로그래밍|gpt|생성형|ai-native|ai활용|ai 활용|노코드/i },
+  { id: "english", label: "영어·외국어", re: /영어|english|토익|toeic|toefl|ielts|opic|오픽|스피킹|speaking|외국어|중국어|일본어|어학연수|conversation|영어회화|global culture|통번역|open activity|group speak|원어민|미국|영어권|캐나다|호주|영국/i },
+  { id: "ai", label: "AI·SW·데이터", re: /\bai\b|\bax\b|인공지능|파이썬|python|코딩|\bsw\b|소프트웨어|데이터|클라우드|빅데이터|해커톤|프로그래밍|gpt|생성형|ai-native|ai활용|ai 활용|노코드/i },
   { id: "career", label: "진로·취업", re: /취업|채용|직무|현직자|자기소개서|자소서|면접|포트폴리오|진로|커리어|박람회|인턴|\[대플\]|대플|기업설명회|토크 ?콘서트|공기업|nc[s]/i },
   { id: "startup", label: "창업", re: /창업|스타트업|startup|ir 피칭|사업계획|비즈니스 ?모델/i },
   { id: "global", label: "해외·글로벌", re: /글로벌|해외|단기연수|교환학생|국제|global|연수/i },
@@ -89,6 +89,7 @@ export function cleanProgramName(t: string): string {
   const out = t
     .replace(/\[(인재인증|대플|재맞고|졸특)\]\s*/g, "")
     .replace(DATE_RE, (_m, pre: string) => `${pre} `)
+    .replace(/_[A-Za-z]+(?=\s|$)/g, "")
     .replace(/\s{2,}/g, " ")
     .replace(/^[\s_:·)\]–-]+|[\s_:·(\[–-]+$/g, "")
     .trim();
@@ -97,11 +98,19 @@ export function cleanProgramName(t: string): string {
 
 export const textOf = (p: Program) => `${p.t} ${p.k} ${p.d}`;
 
+/** 같은 프로그램 묶음 이름 (전반기·후반기, 회차, 반 이름, '외 N건'을 뺌) — 추천 중복 제거용 */
+export const familyName = (t: string) =>
+  cleanProgramName(t)
+    .replace(/전반기|후반기|상반기|하반기|\d+\s*차|제\s*\d+\s*회|\([^)]*\)|외\s*\d+\s*건|_[^ ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 export function themesOf(p: Program): ThemeId[] {
   const txt = textOf(p);
   const head = `${p.t} ${p.k}`;
-  // 영어·외국어는 소개글 속 단어 하나로 잘못 묶이기 쉬워 이름·해시태그로만 판단
-  const out = THEMES.filter((t) => (t.id === "english" ? t.re.test(head) : t.re.test(txt))).map((t) => t.id) as ThemeId[];
+  // 영어·AI·해외는 소개글 속 단어 하나로 잘못 묶이기 쉬워 이름·해시태그로만 판단
+  const headOnly = new Set<string>(["english", "ai", "global"]);
+  const out = THEMES.filter((t) => (headOnly.has(t.id) ? t.re.test(head) : t.re.test(txt))).map((t) => t.id) as ThemeId[];
   if (p.c1 === "창업지원" && !out.includes("startup")) out.push("startup");
   if (p.c1 === "상담·심리지원" && !out.includes("counsel")) out.push("counsel");
   if (p.c1 === "진로·취업지원" && !out.includes("career")) out.push("career");
@@ -134,6 +143,143 @@ export interface Scored {
   score: number;
   reasons: string[];
   themes: ThemeId[];
+  /** 특정 학부·학과 대상인데 내 전공이 아니면 false */
+  eligible: boolean;
+  /** 대상 학부·학과 (특정 전공 대상일 때) */
+  audience: string | null;
+  /** 듣기 좋은 학년 */
+  years: number[] | null;
+}
+
+/** 특정 학부·학과 대상 프로그램이면 그 이름 (전공역량강화 + 운영 부서가 학부·학과) */
+export function audienceOf(p: Program): string | null {
+  if (p.c1 !== "전공역량강화") return null;
+  const m = /([가-힣A-Za-z&·]+(?:학부|학과|전공))(?:\s|$)/.exec(p.o);
+  return m ? m[1] : null;
+}
+
+/** 듣기 좋은 학년 (이름·해시태그·소개의 대상 표현으로 판단) */
+export function yearsOf(p: Program): number[] | null {
+  const head = `${p.t} ${p.k}`;
+  const target = /대상\s*[:：]?[^.。\n]{0,40}?([1-4])\s*학년/.exec(p.d);
+  if (target) return [Number(target[1])];
+  if (/신입생|새내기|예비대학|1학년|대학생활|트랙진로탐색|전공탐색|트랙 ?선택/.test(head)) return [1];
+  if (/졸업생|졸업예정|졸업작품|4학년/.test(head)) return [4];
+  if (/취업|채용|면접|자기소개서|자소서|이력서|현장실습|인턴|IPP|직무|포트폴리오|박람회|기업설명회/i.test(head)) return [3, 4];
+  if (/진로탐색|진로 ?멘토링|진로특강|적성/.test(head)) return [1, 2];
+  return null;
+}
+
+/** 비교과 로드맵 단계: 1 입문(가볍게 경험) → 2 성장(꾸준히 참여) → 3 도전(성과·기록) */
+export type Stage = 1 | 2 | 3;
+export const STAGES: { n: Stage; name: string; desc: string }[] = [
+  { n: 1, name: "입문", desc: "가볍게 경험하며 방향 잡기" },
+  { n: 2, name: "성장", desc: "꾸준히 참여하며 실력 쌓기" },
+  { n: 3, name: "도전", desc: "대회·연수·실습으로 성과 남기기" },
+];
+const days = (p: Program) => Math.max(1, Math.round((Date.parse(p.e) - Date.parse(p.s)) / 86400000) + 1);
+export function stageOf(p: Program): Stage {
+  const head = `${p.t} ${p.k}`;
+  if (p.c2 === "공모전·대회" || /대회|공모전|경진|챌린지|해커톤/.test(head)) return 3;
+  if (/단기연수|어학연수|해외연수|교환학생|현장실습|인턴십|IPP|HSP/i.test(head)) return 3;
+  if (p.c2 === "상담·검사" || /코너|corner|특강|설명회|검사|오리엔테이션|박람회|투어|세미나|토크/i.test(head) || (p.c2 === "특강·워크숍" && days(p) <= 2)) return 1;
+  if (/서포터즈|발표회|프로젝트|데모데이/.test(head)) return 3;
+  return 2;
+}
+
+/** 운영 시기 안내: 지금 열려 있으면 날짜, 아니면 지난 운영 학기로 다음 시기 예상 */
+export function runText(p: Program, today = todayISO()): string {
+  const st = statusOf(p, today);
+  const md = (d: string) => `${Number(d.slice(5, 7))}.${Number(d.slice(8, 10))}`;
+  if (st === "open") return `신청 ~${md(p.ae)} · 운영 ${md(p.s)}${p.e !== p.s ? `~${md(p.e)}` : ""}`;
+  if (st === "running") return `운영 중 ~${md(p.e)}`;
+  const terms = new Set(p.sems.map((x) => x.split("-")[1]));
+  const month = Number(p.s.slice(5, 7));
+  const vac = month === 1 || month === 2 || month === 7 || month === 8 ? (month <= 2 ? "겨울방학" : "여름방학") : `${month}월`;
+  return `${terms.size > 1 ? "매 학기" : terms.has("1") ? "1학기" : "2학기"} ${vac}쯤 운영 (지난 운영 ${p.sems.map(semesterLabel).join(", ")})`;
+}
+
+/** 담을 학기 추천: minSem 이후, 1학기에만 열리면 1학기 쪽(짝수 인덱스)으로 */
+export function suggestSem(p: Program, minSem: number, today = todayISO()): number {
+  const from = Math.min(7, Math.max(0, minSem));
+  if (statusOf(p, today) !== "closed") return from;
+  const terms = new Set(p.sems.map((x) => x.split("-")[1]));
+  if (terms.size !== 1) return from;
+  const parity = terms.has("1") ? 0 : 1;
+  for (let s = from; s < 8; s++) if (s % 2 === parity) return s;
+  return 7;
+}
+
+export interface GoalStep {
+  stage: (typeof STAGES)[number];
+  items: { r: Scored; sem: number }[];
+}
+
+/** 목표(카테고리) 하나의 단계별 비교과 로드맵 */
+export function goalPath(theme: ThemeId, recs: Scored[], now: number, per = 3, today = todayISO()): GoalStep[] {
+  const seen = new Set<string>();
+  const pool = recs.filter((r) => r.eligible && r.themes.includes(theme));
+  return STAGES.map((stage, k) => {
+    const items: { r: Scored; sem: number }[] = [];
+    let majorOnly = 0;
+    for (const r of pool) {
+      if (items.length >= per) break;
+      if (stageOf(r.p) !== stage.n) continue;
+      // 학부·학과 전용 프로그램은 단계마다 2개까지만 (학교 전체 프로그램도 고르게 보이도록)
+      const major = !!audienceOf(r.p);
+      if (major && majorOnly >= 2) continue;
+      if (major) majorOnly++;
+      const nm = familyName(r.p.t);
+      if (seen.has(nm)) continue;
+      seen.add(nm);
+      items.push({ r, sem: suggestSem(r.p, now + k, today) });
+    }
+    return { stage, items };
+  });
+}
+
+/** 진로 진단으로 비교과 목표 추천 (학생이 고르지 않았을 때) */
+export function suggestThemes(profile: Profile): ThemeId[] {
+  const out: ThemeId[] = [];
+  const has = (xs: readonly string[], re: RegExp) => xs.some((x) => re.test(x));
+  if (has(profile.interests, /데이터|프로그래밍|보안/) || has(profile.jobs, /개발|데이터|AI|보안/)) out.push("ai");
+  if (has(profile.interests, /언어|글로벌/) || has(profile.jobs, /무역|교육/)) out.push("english");
+  if (has(profile.jobs, /창업/)) out.push("startup");
+  out.push("career");
+  return [...new Set(out)].slice(0, 2);
+}
+
+/** 캘린더 파일(.ics): 신청 마감일과 운영 기간 */
+export function icsOf(items: { p: Program }[], today = todayISO(), stamp = new Date()): string {
+  const d = (x: string) => x.replace(/-/g, "");
+  const next = (x: string) => {
+    const t = new Date(`${x}T00:00:00Z`);
+    t.setUTCDate(t.getUTCDate() + 1);
+    return t.toISOString().slice(0, 10).replace(/-/g, "");
+  };
+  const esc = (x: string) => x.replace(/\\/g, "\\\\").replace(/[,;]/g, (c) => `\\${c}`).replace(/\n/g, "\\n");
+  const ts = stamp.toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//track-compass//e-Advisor//KO", "CALSCALE:GREGORIAN", "X-WR-CALNAME:비교과 일정"];
+  for (const { p } of items) {
+    const url = `https://hsportal.hansung.ac.kr/ko/program/all/view/${p.id}`;
+    const ev = (uid: string, from: string, to: string, title: string) =>
+      lines.push("BEGIN:VEVENT", `UID:${uid}@track-compass`, `DTSTAMP:${ts}`, `DTSTART;VALUE=DATE:${d(from)}`, `DTEND;VALUE=DATE:${next(to)}`, `SUMMARY:${esc(title)}`, `DESCRIPTION:${esc(`${p.o} · ${p.p ? `${p.p}pt` : "포인트 공지 확인"} · ${url}`)}`, "END:VEVENT");
+    if (p.ae >= today) ev(`${p.id}-apply`, p.ae, p.ae, `[신청 마감] ${cleanProgramName(p.t)}`);
+    if (p.e >= today) ev(`${p.id}-run`, p.s >= today ? p.s : today, p.e, cleanProgramName(p.t));
+  }
+  lines.push("END:VCALENDAR");
+  return lines.join("\r\n") + "\r\n";
+}
+
+/** 오늘 이후 일정 (신청 마감·운영 시작), 날짜순 */
+export function upcomingOf(items: { p: Program }[], today = todayISO(), limitDays = 120): { date: string; kind: "마감" | "시작"; p: Program }[] {
+  const end = new Date(Date.parse(today) + limitDays * 86400000).toISOString().slice(0, 10);
+  const out: { date: string; kind: "마감" | "시작"; p: Program }[] = [];
+  for (const { p } of items) {
+    if (p.ae >= today && p.ae <= end) out.push({ date: p.ae, kind: "마감", p });
+    if (p.s >= today && p.s <= end) out.push({ date: p.s, kind: "시작", p });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date) || a.p.id - b.p.id);
 }
 
 /**
@@ -168,27 +314,33 @@ export function scoreProgram(p: Program, profile: Profile, tracks: Track[] | nul
   const hitS = profile.strengths.filter((s) => STRENGTH_KW[s]?.test(txt));
   if (hitS.length) score += hitS.length;
 
-  if (tracks?.length) {
-    const mine = tracks;
-    const named = mine.filter((t) => p.t.includes(short(t)) || p.k.includes(short(t)) || p.t.includes(t.name));
-    if (named.length) {
-      score += 6;
-      reasons.push(`내 트랙 '${named.map((t) => t.name).join("', '")}' 프로그램`);
-    } else {
-      const bySchool = mine.filter((t) => p.o.includes(t.school));
-      if (bySchool.length) {
-        score += 3;
-        reasons.push(`${bySchool[0].school} 운영`);
-      } else if (p.c1 === "전공역량강화" && /대학|학부|학과/.test(p.o)) {
-        score -= 4;
-      }
-    }
+  const audience = audienceOf(p);
+  let eligible = true;
+  const mine = tracks ?? [];
+  const named = mine.filter((t) => p.t.includes(short(t)) || p.k.includes(short(t)) || p.t.includes(t.name));
+  if (named.length) {
+    score += 6;
+    reasons.push(`내 트랙 '${named.map((t) => t.name).join("', '")}' 프로그램`);
+  } else if (mine.some((t) => p.o.includes(t.school))) {
+    score += 3;
+    reasons.push(`${mine.find((t) => p.o.includes(t.school))!.school} 운영`);
+  } else if (audience && audience !== profile.entry) {
+    // 다른 학부·학과 학생 대상 전공 프로그램: 목표 로드맵에서 빼고 목록에서는 대상 표시
+    eligible = false;
+    score -= 6;
+  }
+  const years = yearsOf(p);
+  if (years) {
+    if (years.includes(profile.year)) {
+      score += 1.5;
+      reasons.push(`${years.join("·")}학년 추천`);
+    } else score -= 2;
   }
   if (p.cert) score += 0.5;
   if (statusOf(p) === "open") score += 1.5;
   if (p.sems.length > 1) score += 0.5;
   score += Math.min(p.p, 100) / 50;
-  return { p, score, reasons, themes };
+  return { p, score, reasons, themes, eligible, audience, years };
 }
 
 export function recommendPrograms(profile: Profile, tracks: Track[] | null, programs: Program[] = PROGRAMS): Scored[] {

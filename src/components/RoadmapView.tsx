@@ -1,12 +1,143 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type DragEvent } from "react";
+import { MODULAR, modulePath } from "../data/modules";
 import { GRAD, MODE_RULES } from "../data/rules";
 import { SEM_NAMES } from "../data/tracks";
+import { CATALOG_NAMES } from "../lib/learning";
 import { planParts, planTitle, type PlanPart } from "../lib/plan";
 import { pastReviewed, pastUnchecked, semesterCredits, trackCredits, unitText } from "../lib/roadmap";
-import type { AppState, Plan, Roadmap } from "../types";
+import type { AppState, CustomItem, Edits, Plan, PlanItem, Roadmap } from "../types";
+import { Tip } from "./Tip";
 
-function TrackSource({ part, roadmap }: { part: PlanPart; roadmap: Roadmap }) {
+/** 교과 로드맵 직접 수정 (시간표처럼 옮기기·바꾸기·추가) */
+export interface EditApi {
+  edits: Edits;
+  /** 학습 데이터(성적)로 자동 이수 처리된 항목 */
+  auto: AppState["checks"];
+  paths: Record<string, string>;
+  jobs: string[];
+  onMove: (id: string, sem: number) => void;
+  onUnmove: (id: string) => void;
+  onSwap: (kind: "a" | "b", from: string, to: string) => void;
+  onRename: (id: string, name: string) => void;
+  onAdd: (item: Omit<CustomItem, "id">) => void;
+  onRemove: (id: string) => void;
+  onReset: () => void;
+  onPath: (track: string, label: string) => void;
+}
+
+const editCount = (e: Edits) =>
+  Object.keys(e.moves ?? {}).length + (e.drops?.length ?? 0) + Object.keys(e.renames ?? {}).length + (e.custom?.length ?? 0);
+
+const LIBERAL_SLOT = /^(선택필수교양\(|자율 교양|교양 \d+ \()/;
+
+function ItemEditor({ it, sem, plan, roadmap, api, onClose }: { it: PlanItem; sem: number; plan: Plan; roadmap: Roadmap; api: EditApi; onClose: () => void }) {
+  const [to, setTo] = useState(sem);
+  const [swap, setSwap] = useState("");
+  const renamed = api.edits.renames?.[it.id];
+  const [nm, setNm] = useState(renamed ?? "");
+  const track = it.kind === "a" ? plan.a : it.kind === "b" ? plan.b : null;
+  const inPlan = new Set(roadmap.flat().map((x) => x.name));
+  const swaps = track && it.req === "선" && !it.carryOf ? track.courses.filter((c) => c.req === "선" && !inPlan.has(c.name)) : [];
+  const slot = it.kind === "g" && (LIBERAL_SLOT.test(it.name) || !!renamed) && !it.carryOf;
+  return (
+    <div className="editor" role="group" aria-label={`${it.name} 수정`}>
+      <div className="ed-row">
+        <label htmlFor={`mv-${it.id}`}>학기 옮기기</label>
+        <select id={`mv-${it.id}`} value={to} onChange={(e) => setTo(Number(e.target.value))}>
+          {SEM_NAMES.map((n, i) => (
+            <option key={n} value={i}>
+              {n}
+            </option>
+          ))}
+        </select>
+        <button type="button" className="btn small" disabled={to === sem} onClick={() => (api.onMove(it.id, to), onClose())}>
+          옮기기
+        </button>
+        {it.manual === "moved" && (
+          <button type="button" className="link-btn" onClick={() => (api.onUnmove(it.id), onClose())}>
+            원래 자리로
+          </button>
+        )}
+      </div>
+      {swaps.length > 0 && (
+        <div className="ed-row">
+          <label htmlFor={`sw-${it.id}`}>다른 전공선택으로</label>
+          <select id={`sw-${it.id}`} value={swap} onChange={(e) => setSwap(e.target.value)}>
+            <option value="">과목 고르기</option>
+            {swaps.map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.name} ({c.term})
+              </option>
+            ))}
+          </select>
+          <button type="button" className="btn small" disabled={!swap} onClick={() => (api.onSwap(it.kind as "a" | "b", it.name, swap), onClose())}>
+            바꾸기
+          </button>
+        </div>
+      )}
+      {slot && (
+        <div className="ed-row">
+          <label htmlFor={`rn-${it.id}`}>실제 과목명</label>
+          <input id={`rn-${it.id}`} list="course-names-rm" value={nm} onChange={(e) => setNm(e.target.value)} placeholder="예: 생활 속의 심리학" />
+          <button type="button" className="btn small" onClick={() => (api.onRename(it.id, nm.trim()), onClose())}>
+            {nm.trim() ? "저장" : "비우기"}
+          </button>
+        </div>
+      )}
+      {it.manual === "custom" && (
+        <div className="ed-row">
+          <button type="button" className="btn ghost small" onClick={() => (api.onRemove(it.id), onClose())}>
+            이 과목 빼기
+          </button>
+        </div>
+      )}
+      <button type="button" className="link-btn ed-close" onClick={onClose}>
+        닫기
+      </button>
+    </div>
+  );
+}
+
+function AddCourse({ sem, plan, api, onClose }: { sem: number; plan: Plan; api: EditApi; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [credit, setCredit] = useState(3);
+  const [kind, setKind] = useState<CustomItem["kind"]>("f");
+  const ok = name.trim().length >= 2;
+  return (
+    <div className="editor add" role="group" aria-label={`${SEM_NAMES[sem]} 과목 추가`}>
+      <div className="ed-row">
+        <label htmlFor={`ad-n-${sem}`}>과목명</label>
+        <input id={`ad-n-${sem}`} list="course-names-rm" value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 생활 속의 심리학" />
+      </div>
+      <div className="ed-row">
+        <label htmlFor={`ad-k-${sem}`}>구분</label>
+        <select id={`ad-k-${sem}`} value={kind} onChange={(e) => setKind(e.target.value as CustomItem["kind"])}>
+          <option value="f">자유선택(일반선택)</option>
+          <option value="g">교양</option>
+          <option value="a">{planParts(plan)[0].spec.label} 전공</option>
+          {plan.b && <option value="b">{planParts(plan)[1]?.spec.label ?? "2트랙"} 전공</option>}
+        </select>
+        <label htmlFor={`ad-c-${sem}`}>학점</label>
+        <select id={`ad-c-${sem}`} value={credit} onChange={(e) => setCredit(Number(e.target.value))}>
+          {[1, 2, 3, 4].map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
+        <button type="button" className="btn small" disabled={!ok} onClick={() => (api.onAdd({ sem, name: name.trim(), credit, kind }), onClose())}>
+          추가
+        </button>
+        <button type="button" className="link-btn" onClick={onClose}>
+          취소
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TrackSource({ part, roadmap, api }: { part: PlanPart; roadmap: Roadmap; api?: EditApi }) {
   const { t, spec, kind } = part;
+  const mod = MODULAR[t.name];
+  const path = api ? modulePath(t.name, api.jobs, api.paths[t.name]) : null;
   const credits = trackCredits(roadmap, kind);
   const req = roadmap
     .flat()
@@ -23,6 +154,20 @@ function TrackSource({ part, roadmap }: { part: PlanPart; roadmap: Roadmap }) {
       </span>
       {req < spec.req && <span className="warn">전공필수 {spec.req}학점 이상 필요 · 공개 교육과정 전공필수 {req}학점 (학과에 확인)</span>}
       {t.dataNote && <span className="hint">{t.dataNote}</span>}
+      {mod && api && (
+        <span className="path-pick">
+          <label htmlFor={`path-${kind}`}>모듈형 진로 경로</label>
+          <select id={`path-${kind}`} value={path?.label ?? ""} onChange={(e) => api.onPath(t.name, e.target.value)}>
+            {!path && <option value="">경로 고르기</option>}
+            {mod.paths.map((x) => (
+              <option key={x.label} value={x.label}>
+                {x.label} ({x.modules.join("+")})
+              </option>
+            ))}
+          </select>
+          <small className="hint">고른 경로의 모듈 과목을 전공선택에 먼저 넣어요</small>
+        </span>
+      )}
     </div>
   );
 }
@@ -45,7 +190,9 @@ export function RoadmapView({
   onMarkPast,
   onExport,
   onImport,
+  api,
 }: {
+  api: EditApi;
   plan: Plan;
   roadmap: Roadmap;
   checks: AppState["checks"];
@@ -63,6 +210,18 @@ export function RoadmapView({
   const carried = roadmap.flat().filter((it) => it.carryOf).length;
   const reviewed = pastReviewed(roadmap, now, checks);
   const overloaded = roadmap.slice(now).filter((items) => semesterCredits(items) > GRAD.semesterMaxCarry).length;
+  const [editing, setEditing] = useState<string | null>(null);
+  const [adding, setAdding] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+  const edited = editCount(api.edits);
+  const autoCount = Object.keys(api.auto).length;
+
+  const onDrop = (k: number) => (e: DragEvent) => {
+    e.preventDefault();
+    setDragOver(null);
+    const id = e.dataTransfer.getData("text/plain");
+    if (id) api.onMove(id, k);
+  };
 
   return (
     <section className="panel" id="p-roadmap">
@@ -78,10 +237,15 @@ export function RoadmapView({
             </span>
           ))}
           <span className="pill g">교양</span>
+          <span className="pill f">자유선택</span>
           <span className="pill x">비교과</span>
           <span className="pill carry">다시 들을 과목</span>
         </div>
       </div>
+      <Tip>
+        시간표처럼 고칠 수 있어요. 과목 오른쪽 ⋯를 누르면 학기 옮기기·다른 전공선택으로 바꾸기·교양 실제 과목명 적기를, 학기 아래 '+ 과목 추가'로 자유선택 과목을 넣을 수 있어요. 컴퓨터에서는 과목을 끌어 다른 학기에 놓아도 돼요.
+        {autoCount > 0 && ` 성적표에서 읽은 과목 ${autoCount}개는 이수로 체크해 뒀어요.`}
+      </Tip>
 
       {now > 0 && unchecked > 0 && (
         <div className="card notice" role="status">
@@ -109,7 +273,7 @@ export function RoadmapView({
 
       <div className="card sources">
         {planParts(plan).map((x) => (
-          <TrackSource key={x.kind} part={x} roadmap={roadmap} />
+          <TrackSource key={x.kind} part={x} roadmap={roadmap} api={api} />
         ))}
         {plan.mode === "undecided" && (
           <div className="src-row">
@@ -154,6 +318,11 @@ export function RoadmapView({
               e.target.value = "";
             }}
           />
+          {edited > 0 && (
+            <button type="button" className="btn ghost" id="resetEdits" onClick={api.onReset}>
+              직접 고친 {edited}곳 되돌리기
+            </button>
+          )}
           <span className="hint">입력 내용은 이 브라우저에만 저장돼요. 다른 컴퓨터에서 이어 쓰려면 파일로 저장해 두세요.</span>
         </div>
       </div>
@@ -166,7 +335,13 @@ export function RoadmapView({
           const state =
             k === now ? <span className="state now">이번 학기</span> : allDone ? <span className="state done">완료</span> : k < now ? <span className="state">미완료 있음</span> : <span className="state">예정</span>;
           return (
-            <article key={k} className={`card sem${k === now ? " now" : k < now ? " past" : ""}`}>
+            <article
+              key={k}
+              className={`card sem${k === now ? " now" : k < now ? " past" : ""}${dragOver === k ? " drop" : ""}`}
+              onDragOver={(e) => (e.preventDefault(), dragOver !== k && setDragOver(k))}
+              onDragLeave={() => setDragOver(null)}
+              onDrop={onDrop(k)}
+            >
               <div className="sem-head">
                 <h3>{SEM_NAMES[k]}</h3>
                 {state}
@@ -174,6 +349,7 @@ export function RoadmapView({
               {items.map((it, j) => {
                 const id = `it-${k}-${j}`;
                 const on = !!checks[it.id];
+                const credit = it.kind === "a" || it.kind === "b" || it.kind === "g" || it.kind === "f";
                 const cls = [
                   "item",
                   it.kind,
@@ -181,20 +357,46 @@ export function RoadmapView({
                   it.req === "필" || it.req === "기" ? "req" : "",
                   it.auto ? "auto" : "",
                   it.carryOf ? "carry" : "",
+                  it.manual ? `manual ${it.manual}` : "",
                 ]
                   .filter(Boolean)
                   .join(" ");
                 return (
-                  <div key={it.id} className={cls}>
-                    <input type="checkbox" id={id} checked={on} onChange={(e) => onToggle(it.id, e.target.checked)} />
-                    <label htmlFor={id}>
-                      <span>{it.name}</span>
-                      <small>{it.sub}</small>
-                    </label>
-                    <span className="u">{unitText(it)}</span>
+                  <div key={it.id} className="item-wrap">
+                    <div
+                      className={cls}
+                      draggable={credit}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/plain", it.id);
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                    >
+                      <input type="checkbox" id={id} checked={on} onChange={(e) => onToggle(it.id, e.target.checked)} />
+                      <label htmlFor={id}>
+                        <span>{it.name}</span>
+                        <small>
+                          {it.sub}
+                          {api.auto[it.id] ? " · 성적표 이수" : ""}
+                        </small>
+                      </label>
+                      <span className="u">{unitText(it)}</span>
+                      {credit && (
+                        <button type="button" className="edit-btn" aria-label={`${it.name} 수정`} aria-expanded={editing === it.id} onClick={() => setEditing(editing === it.id ? null : it.id)}>
+                          ⋯
+                        </button>
+                      )}
+                    </div>
+                    {editing === it.id && <ItemEditor it={it} sem={k} plan={plan} roadmap={roadmap} api={api} onClose={() => setEditing(null)} />}
                   </div>
                 );
               })}
+              {adding === k ? (
+                <AddCourse sem={k} plan={plan} api={api} onClose={() => setAdding(null)} />
+              ) : (
+                <button type="button" className="link-btn add-course" onClick={() => setAdding(k)}>
+                  + 과목 추가
+                </button>
+              )}
               <div className="sem-foot">
                 <span className={credits > GRAD.semesterMax ? "warn" : ""}>
                   교과 {credits}학점
@@ -214,8 +416,13 @@ export function RoadmapView({
       </div>
       <p className="hint">
         과목의 학년·학기와 이수구분은 각 트랙 공식 교육과정 기준이고, 교양 과목의 학기 배치와 전공선택 과목 선택은 예시예요. 한 학기가 기본 수강 한도({GRAD.semesterMax}학점)를 넘지 않게 교양·전공선택을 나눠 배치했고, 옮긴 전공 과목에는 교육과정상 학기를 적어 두었어요. '추천'이 붙은 비교과는 내가 담은 프로그램이 없는 학기에
-        앱이 채운 것으로, '비교과 추천' 탭에서 바꿀 수 있어요. 교양 외 자유선택 {GRAD.free}학점은 따로 채워야 해요.
+        앱이 채운 것으로, '비교과 로드맵' 탭에서 바꿀 수 있어요. 교양 외 자유선택 {GRAD.free}학점은 '+ 과목 추가'로 넣거나 성적표의 다른 과목으로 채워져요.
       </p>
+      <datalist id="course-names-rm">
+        {CATALOG_NAMES.map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
     </section>
   );
 }

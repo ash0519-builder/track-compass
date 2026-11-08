@@ -64,6 +64,17 @@ export interface Profile {
   strengths: string[];
   /** 비교과로 키우고 싶은 분야 (비교과 카테고리 id) */
   extraThemes?: string[];
+  /** 학습 데이터: 지금까지 들은 과목과 성적 */
+  taken?: TakenCourse[];
+}
+
+export type Grade = "A+" | "A0" | "B+" | "B0" | "C+" | "C0" | "D+" | "D0" | "F" | "P" | "NP";
+
+export interface TakenCourse {
+  name: string;
+  grade: Grade;
+  /** 학점 (모르면 교육과정 학점 또는 3) */
+  credit?: number;
 }
 
 export interface Combo {
@@ -76,7 +87,8 @@ export interface Combo {
   total: number;
 }
 
-export type ItemKind = "a" | "b" | "g" | "x" | "m";
+/** a 제1트랙, b 제2트랙(부전공), g 교양, f 자유선택(직접 추가), x 비교과, m 일정 */
+export type ItemKind = "a" | "b" | "g" | "f" | "x" | "m";
 
 export interface PlanItem {
   id: string;
@@ -97,6 +109,34 @@ export interface PlanItem {
   carryOf?: string;
   /** 학기 학점이 몰려 다른 학기로 옮긴 경우 원래 학기 인덱스 */
   movedFrom?: number;
+  /** 학생이 직접 옮겼거나 추가한 항목 */
+  manual?: "moved" | "custom";
+  /** 모듈형 교육과정 모듈 (예: M3 AI·머신러닝) */
+  module?: string;
+  /** 학습 데이터(성적)에서 자동으로 이수 처리됨 */
+  fromTranscript?: boolean;
+}
+
+/** 학생이 직접 추가한 과목 */
+export interface CustomItem {
+  id: string;
+  sem: number;
+  name: string;
+  credit: number;
+  kind: "a" | "b" | "g" | "f";
+}
+
+/** 교과 로드맵 직접 수정 내용 (시간표처럼 옮기기·바꾸기·추가) */
+export interface Edits {
+  /** 항목 id → 학기 */
+  moves?: Record<string, number>;
+  /** 뺀 전공선택 `${kind}:${과목명}` */
+  drops?: string[];
+  /** 넣은 전공선택 `${kind}:${과목명}` */
+  pins?: string[];
+  /** 교양 자리 id → 실제 과목명 */
+  renames?: Record<string, string>;
+  custom?: CustomItem[];
 }
 
 export type Roadmap = PlanItem[][];
@@ -126,6 +166,12 @@ export interface AppState {
   pick: [string, string | null] | null;
   /** 전공 이수 방식 (없으면 융합전공Ⅰ) */
   mode?: MajorMode;
+  /** 교과 로드맵 직접 수정 */
+  edits?: Edits;
+  /** 모듈형 트랙의 진로 경로 선택: 트랙 이름 → 경로 이름 */
+  paths?: Record<string, string>;
+  /** 학습 데이터로 자동 체크된 항목 중 학생이 해제한 것 */
+  offs?: Record<string, true>;
   checks: Record<string, true>;
   /** 로드맵에 담은 비교과 프로그램: 프로그램 id → 학기 인덱스(0~7) */
   extraPicks?: Record<string, number>;

@@ -1,13 +1,14 @@
 import { GRAD, liberalTotal, MODE_RULES } from "../data/rules";
 import { findEntry, SEM_NAMES } from "../data/tracks";
 import { admissionOf, nowIndex, semesterCredits, type Progress } from "../lib/roadmap";
+import { gpaOf } from "../lib/learning";
 import { planParts } from "../lib/plan";
 import { toPoints } from "../lib/scoring";
 import type { Plan, Profile, Roadmap } from "../types";
 
 export const entryName = (p: Profile) => `${findEntry(p.entry).name} · ${p.day} · ${String(admissionOf(p)).slice(2)}학번`;
 
-function Meter({ label, value, max, unit, tone }: { label: string; value: number; max: number; unit: string; tone: "a" | "b" | "g" | "x" }) {
+function Meter({ label, value, max, unit, tone }: { label: string; value: number; max: number; unit: string; tone: "a" | "b" | "g" | "f" | "x" }) {
   const w = max ? Math.min(100, Math.round((value / max) * 100)) : 0;
   return (
     <div>
@@ -67,7 +68,21 @@ function PlanLine({ plan }: { plan: Plan }) {
   );
 }
 
-export function Summary({ plan, profile, prog, roadmap }: { plan: Plan; profile: Profile; prog: Progress; roadmap: Roadmap }) {
+export function Summary({
+  plan,
+  profile,
+  prog,
+  roadmap,
+  outside = [],
+}: {
+  plan: Plan;
+  profile: Profile;
+  prog: Progress;
+  roadmap: Roadmap;
+  outside?: { name: string; credit: number }[];
+}) {
+  const gpa = gpaOf(profile.taken ?? []);
+  const free = prog.free + outside.reduce((s, x) => s + x.credit, 0);
   const now = nowIndex(profile);
   const cur = roadmap[now] ?? [];
   const credits = semesterCredits(cur);
@@ -93,6 +108,11 @@ export function Summary({ plan, profile, prog, roadmap }: { plan: Plan; profile:
           {pts > GRAD.semesterCap && <span className="warn"> · 비교과는 학기당 {GRAD.semesterCap}pt까지 인정</span>}
           {carry > 0 && <span> · 다시 들을 과목 {carry}개</span>}
         </p>
+        {profile.taken?.length ? (
+          <p className="now-line learn-line">
+            <b>학습 데이터</b> {profile.taken.length}과목 · 평균 평점 {gpa ?? "-"} / 4.5 · 추천에 35% 반영
+          </p>
+        ) : null}
       </div>
       <div className="card meters">
         {planParts(plan).map((x) => (
@@ -105,6 +125,7 @@ export function Summary({ plan, profile, prog, roadmap }: { plan: Plan; profile:
           </div>
         )}
         <Meter label="교양" value={prog.liberal} max={liberalTotal(admissionOf(profile))} unit="학점" tone="g" />
+        <Meter label="자유선택" value={free} max={GRAD.free} unit="학점" tone="f" />
         <Meter label="비교과포인트" value={prog.extraPts} max={GRAD.extraPoints} unit="pt" tone="x" />
       </div>
     </section>

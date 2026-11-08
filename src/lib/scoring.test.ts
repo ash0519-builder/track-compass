@@ -4,11 +4,13 @@ import { GRAD } from "../data/rules";
 import { ENTRIES, findTrack, TRACKS } from "../data/tracks";
 import type { AppState, Profile } from "../types";
 import { answer } from "./advisor";
-import { buildRoadmap, checksBefore, normalizeChecks, nowIndex, planTrack, progress, semesterCredits, trackCredits } from "./roadmap";
+import { buildRoadmap, checksBefore, normalizeChecks, nowIndex, planTrack, progress, semesterCredits, trackCredits, transcriptChecks } from "./roadmap";
 import { sanitizeState } from "./storage";
 import { planOf, planParts, planTracks, resolvePlan } from "./plan";
 import { cleanProgramName, recommendPrograms } from "./programs";
-import { combos, firstCandidates, fit, overlap } from "./scoring";
+import { combos, firstCandidates, fit, makeCombo, overlap, tagFit } from "./scoring";
+import { gpaOf, learnFit, parseTranscript } from "./learning";
+import { goalPath, icsOf, stageOf } from "./programs";
 
 const P: Profile = {
   entry: "상상력인재학부",
@@ -292,4 +294,97 @@ test("상담: 제2트랙을 안 하는 경우를 학과·트랙제 입학생에 
   assert.match(answer("왜 이 조합을 추천했어?", deep), /지금 계획은 융합보안학과 심화전공/);
   assert.match(answer("웹공학트랙으로 바꾸면 어떻게 돼?", deep), /제2트랙으로 넣으면/);
   assert.match(answer("졸업하려면 뭐가 필요해?", deep), /심화전공 \d+\/78학점/);
+});
+
+test("성적표 붙여넣기: 과목명·성적·학점을 읽고 재수강은 뒤의 성적을 쓴다", () => {
+  const r = parseTranscript(
+    ["2025\t1\t교필\t사고와 표현\t3\tA+", "2025 2학기 전공기초 컴퓨터프로그래밍 3 B", "C 프로그래밍 3 A0", "아무 줄", "2026 1 일선 처음보는과목 2 P", "2026 1 재수강 컴퓨터프로그래밍 3 A0"].join("\n"),
+  );
+  const by = Object.fromEntries(r.courses.map((c) => [c.name.replace(/\s/g, ""), c]));
+  assert.equal(by["사고와표현"].grade, "A+");
+  assert.equal(by["컴퓨터프로그래밍"].grade, "A0", "재수강 성적");
+  assert.equal(by["C프로그래밍"].grade, "A0", "과목명 속 C를 성적으로 착각하지 않음");
+  assert.equal(by["처음보는과목"].grade, "P");
+  assert.equal(by["처음보는과목"].credit, 2);
+  assert.ok(!r.courses.some((c) => c.name.includes("아무")));
+  assert.equal(gpaOf([{ name: "사고와 표현", grade: "A+" }, { name: "컴퓨터프로그래밍", grade: "B0" }]), 3.75);
+});
+
+test("학습 점수: 같은 트랙 > 같은 학부 > 다른 단과대, 성적이 높을수록 크다", () => {
+  const cse = TRACKS.find((t) => t.name === "빅데이터트랙")!;
+  const web = TRACKS.find((t) => t.name === "웹공학트랙")!;
+  const design = TRACKS.find((t) => t.name === "시각디자인트랙")!;
+  const own = cse.courses.filter((c) => c.req !== "기" && !web.courses.some((w) => w.name === c.name)).slice(0, 3);
+  const takenA = own.map((c) => ({ name: c.name, grade: "A+" as const }));
+  const takenC = own.map((c) => ({ name: c.name, grade: "C0" as const }));
+  const a = learnFit(cse, takenA)!.score;
+  assert.ok(a > learnFit(cse, takenC)!.score, "성적 반영");
+  assert.ok(a > learnFit(web, takenA)!.score, "같은 학부 다른 트랙은 낮게");
+  assert.ok(learnFit(web, takenA)!.score > learnFit(design, takenA)!.score, "다른 단과대는 더 낮게");
+  // 흥미가 같으면 들은 과목이 있는 트랙 적합도가 더 높다
+  const p: Profile = { ...P, entry: "컴퓨터공학부", interests: ["프로그래밍"], jobs: ["개발자"], strengths: [], taken: takenA };
+  assert.ok(fit(cse, p) > fit(web, p) || tagFit(cse, p) < tagFit(web, p));
+  assert.equal(fit(cse, { ...p, taken: [] }), tagFit(cse, p));
+});
+
+test("성적표 과목은 로드맵에서 자동 이수, F는 이수 아님", () => {
+  const p: Profile = { ...P, year: 2, sem: 1, admission: 2025, taken: [{ name: "사고와 표현", grade: "A0" }, { name: "AI와 SW 기초", grade: "F" }] };
+  const c = combos(p)[0];
+  const rm = buildRoadmap(planOf(c), p);
+  const auto = transcriptChecks(rm, p.taken);
+  assert.ok(auto["g:사고와 표현"]);
+  assert.ok(!auto["g:AI와 SW 기초"]);
+  assert.deepEqual(transcriptChecks(rm, p.taken, { "g:사고와 표현": true }), {}, "학생이 해제한 것은 빼기");
+});
+
+test("교과 로드맵 직접 수정: 옮기기·전공선택 바꾸기·교양 과목명·과목 추가", () => {
+  const c = combos(P)[0];
+  const base = buildRoadmap(planOf(c), P);
+  const elective = base.flat().find((it) => it.kind === "a" && it.req === "선")!;
+  const other = c.a.courses.find((x) => x.req === "선" && !base.flat().some((it) => it.name === x.name))!;
+  const slot = base.flat().find((it) => it.name.startsWith("선택필수교양("))!;
+  const rm = buildRoadmap(planOf(c), P, {
+    edits: {
+      moves: { [elective.id]: 7 },
+      drops: [`a:${elective.name}`],
+      pins: [`a:${other.name}`],
+      renames: { [slot.id]: "고전으로 읽는 인문학" },
+      custom: [{ id: "c:x", sem: 3, name: "생활 속의 심리학", credit: 3, kind: "f" }],
+    },
+  });
+  const flat = rm.flat();
+  assert.ok(!flat.some((it) => it.name === elective.name), "뺀 전공선택이 남음");
+  assert.ok(flat.some((it) => it.name === other.name), "넣은 전공선택이 없음");
+  assert.ok(flat.some((it) => it.id === slot.id && it.name === "고전으로 읽는 인문학"));
+  assert.ok(rm[3].some((it) => it.id === "c:x" && it.kind === "f" && it.manual === "custom"));
+  const moved = buildRoadmap(planOf(c), P, { edits: { moves: { [slot.id]: 7 } } });
+  assert.ok(moved[7].some((it) => it.id === slot.id && it.manual === "moved"));
+  assert.equal(progress(rm, { "c:x": true }).free, 3);
+});
+
+test("모듈형 트랙: 희망 직무에 맞는 진로 경로의 모듈 과목을 전공선택에 먼저 넣는다", () => {
+  const p: Profile = { ...P, entry: "산업시스템공학부", interests: ["데이터·AI"], jobs: ["AI엔지니어"], strengths: [] };
+  const a = TRACKS.find((t) => t.name === "응용산업데이터공학트랙")!;
+  const b = TRACKS.find((t) => t.name === "빅데이터트랙")!;
+  const plan = { mode: "fusion1" as const, a, b, combo: makeCombo(a, b, p) };
+  const rm = buildRoadmap(plan, p).flat();
+  assert.ok(rm.some((it) => it.kind === "a" && it.module?.startsWith("M3")), "ML/AI 경로의 M3 과목");
+  const rm2 = buildRoadmap(plan, p, { paths: { 응용산업데이터공학트랙: "기업 데이터 엔지니어" } }).flat();
+  assert.ok(rm2.some((it) => it.kind === "a" && it.module?.startsWith("M2")), "경로를 바꾸면 M2 과목");
+});
+
+test("비교과 로드맵: 영어 목표는 입문(English Corner) → 성장 → 도전(연수·대회) 순서", () => {
+  const p: Profile = { ...P, entry: "상상력인재학부", year: 1, sem: 2, extraThemes: ["english"] };
+  const recs = recommendPrograms(p, null);
+  const steps = goalPath("english", recs, 1, 4, "2026-11-08");
+  assert.equal(steps.length, 3);
+  assert.ok(steps[0].items.some((x) => /English Corner/i.test(x.r.p.t)));
+  assert.ok(steps[2].items.every((x) => stageOf(x.r.p) === 3));
+  assert.ok(steps.flatMap((s) => s.items).every((x) => x.r.eligible && x.sem >= 1));
+  const ics = icsOf(steps.flatMap((s) => s.items.map((x) => x.r)), "2026-11-08", new Date("2026-11-08T00:00:00Z"));
+  assert.match(ics, /^BEGIN:VCALENDAR\r\n/);
+  assert.match(ics, /BEGIN:VEVENT\r\nUID:\d+-(apply|run)@track-compass/);
+  // 다른 학부 전용 전공 프로그램은 대상 밖
+  const soc = recommendPrograms({ ...P, entry: "컴퓨터공학부" }, [TRACKS.find((t) => t.name === "웹공학트랙")!]);
+  assert.ok(soc.filter((r) => r.audience === "사회과학부").every((r) => !r.eligible));
 });

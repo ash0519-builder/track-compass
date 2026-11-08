@@ -15,7 +15,9 @@ export function Programs({
   onPick,
   onUnpick,
   onThemes,
+  embedded = false,
 }: {
+  embedded?: boolean;
   profile: Profile;
   recs: Scored[];
   picks: Record<string, number>;
@@ -30,7 +32,7 @@ export function Programs({
   const [semFor, setSemFor] = useState<Record<number, number>>({});
 
   const counts = useMemo(() => themeCounts(recs), [recs]);
-  const list = recs.filter((r) => (theme === "all" ? r.score > 0 : r.themes.includes(theme))).filter((r) => !openOnly || statusOf(r.p) === "open");
+  const list = recs.filter((r) => (theme === "all" ? r.score > 0 && r.eligible : r.themes.includes(theme))).filter((r) => !openOnly || statusOf(r.p) === "open");
   const wanted = profile.extraThemes ?? [];
   const pickedList = Object.entries(picks)
     .map(([id, sem]) => ({ r: recs.find((x) => x.p.id === Number(id)), sem }))
@@ -43,35 +45,47 @@ export function Programs({
     onThemes(next);
   }
 
+  const Wrap = embedded ? "div" : "section";
   return (
-    <section className="panel" id="p-programs">
-      <div className="panel-head">
-        <div>
-          <h2>나에게 맞는 비교과 프로그램</h2>
-          <p>
-            한성대 스마트자기관리시스템의 실제 비교과 {recs.length}개를 진로 진단 결과와 선택한 트랙에 맞춰 순서를 매겼어요. 담은 프로그램은 학기별 로드맵에 들어가고, 비워둔 학기는
-            추천 상위 프로그램으로 채워져요.
+    <Wrap className={embedded ? "browse" : "panel"} id="p-programs">
+      {embedded ? (
+        <div className="browse-head">
+          <h3>전체 프로그램 둘러보기</h3>
+          <p className="hint picked-sum">
+            실제 비교과 {recs.length}개를 진로 진단·선택한 전공·학년에 맞춰 순서를 매겼어요. 담은 프로그램 <b>{pickedList.length}개</b> · 예상 <b>{pickedPts}pt</b>
           </p>
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="panel-head">
+            <div>
+              <h2>나에게 맞는 비교과 프로그램</h2>
+              <p>
+                한성대 스마트자기관리시스템의 실제 비교과 {recs.length}개를 진로 진단 결과와 선택한 트랙에 맞춰 순서를 매겼어요. 담은 프로그램은 학기별 로드맵에 들어가고, 비워둔 학기는
+                추천 상위 프로그램으로 채워져요.
+              </p>
+            </div>
+          </div>
 
-      <div className="card want">
-        <div>
-          <b>비교과로 키우고 싶은 분야</b>
-          <span className="hint"> 최대 3개 · 고른 분야의 프로그램을 가장 먼저 추천해요</span>
-        </div>
-        <div className="chips">
-          {THEMES.filter((t) => t.id !== "major").map((t) => (
-            <button key={t.id} type="button" className="chip" aria-pressed={wanted.includes(t.id)} onClick={() => toggleWanted(t.id)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <div className="picked-sum">
-          담은 비교과 <b>{pickedList.length}개</b> · 예상 <b>{pickedPts}pt</b>
-          <span className="hint"> (졸업요건 {GRAD.extraPoints}pt, 학기당 최대 {GRAD.semesterCap}pt 인정)</span>
-        </div>
-      </div>
+          <div className="card want">
+            <div>
+              <b>비교과로 키우고 싶은 분야</b>
+              <span className="hint"> 최대 3개 · 고른 분야의 프로그램을 가장 먼저 추천해요</span>
+            </div>
+            <div className="chips">
+              {THEMES.filter((t) => t.id !== "major").map((t) => (
+                <button key={t.id} type="button" className="chip" aria-pressed={wanted.includes(t.id)} onClick={() => toggleWanted(t.id)}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div className="picked-sum">
+              담은 비교과 <b>{pickedList.length}개</b> · 예상 <b>{pickedPts}pt</b>
+              <span className="hint"> (졸업요건 {GRAD.extraPoints}pt, 학기당 최대 {GRAD.semesterCap}pt 인정)</span>
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="theme-tabs" role="tablist" aria-label="비교과 카테고리">
         <button type="button" role="tab" aria-selected={theme === "all"} className="tab-chip" onClick={() => (setTheme("all"), setLimit(PAGE))}>
@@ -106,6 +120,12 @@ export function Programs({
                 {r.p.o} · {r.p.c1} · {r.p.c2} · {r.p.team}
                 {r.p.cert ? " · 인재인증" : ""}
               </p>
+              {(!r.eligible || r.years) && (
+                <p className="meta aud">
+                  {!r.eligible && r.audience ? <span className="warn">대상: {r.audience} 학생</span> : null}
+                  {r.years ? <span> 추천 학년: {r.years.join("·")}학년</span> : null}
+                </p>
+              )}
               <p className="meta">
                 운영 {r.p.sems.map(semesterLabel).join(", ")} ({r.p.s.slice(5).replace("-", ".")}
                 {r.p.e !== r.p.s ? `~${r.p.e.slice(5).replace("-", ".")}` : ""})
@@ -160,6 +180,6 @@ export function Programs({
         출처: <a href={PROGRAMS_SOURCE.url}>{PROGRAMS_SOURCE.label}</a> ({PROGRAMS_SOURCE.collected} 기준, 2025년 2학기~2026년 2학기 운영분). 대부분 매 학기 다시 열리지만 일정과 포인트는
         바뀔 수 있으니 신청 전에 공지를 확인하세요.
       </p>
-    </section>
+    </Wrap>
   );
 }

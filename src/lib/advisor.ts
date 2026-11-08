@@ -1,7 +1,9 @@
 import { GRAD, liberalTotal, MODE_RULES, SOURCES } from "../data/rules";
 import { COLLEGES, findEntry, SEM_NAMES, TRACKS } from "../data/tracks";
 import type { AppState, Combo, Plan, Roadmap } from "../types";
+import { earnedCredits, gpaOf, learnFit, learnReason, passed } from "./learning";
 import { planParts, planTitle, planTracks } from "./plan";
+import { THEMES as PROGRAM_THEMES } from "./programs";
 import { eul, eun } from "./korean";
 import { admissionOf, nowIndex, progress, semesterCredits, unitText } from "./roadmap";
 import { statusOf, THEMES, type Scored } from "./programs";
@@ -45,6 +47,7 @@ export const SUGGESTIONS = [
   "캡스톤디자인 언제 들어?",
   "1트랙은 어디서 골라야 해?",
   "2트랙 안 해도 돼?",
+  "내 성적으로 보면 어떤 트랙이 맞아?",
 ];
 
 /**
@@ -52,6 +55,51 @@ export const SUGGESTIONS = [
  * 답변 근거는 앱에 담긴 한성대 공식 교육과정·학사 제도 데이터와 학생의 로드맵이다.
  */
 const pr0 = (ctx: AdvisorContext) => progress(ctx.roadmap, ctx.state.checks, ctx.state.myPoints);
+
+/** 학습 데이터 분석 결과 */
+function learningAnswer(ctx: AdvisorContext): string {
+  const taken = ctx.state.profile.taken ?? [];
+  if (!taken.length) return "아직 학습 데이터가 없어요. '진로·학습 진단' 탭에서 성적표를 붙여넣거나 들은 과목을 추가하면 트랙별로 얼마나 가까운지 분석해 드려요.";
+  const top = TRACKS.map((t) => ({ t, lf: learnFit(t, taken)! }))
+    .filter((x) => x.lf.score > 0)
+    .sort((a, b) => b.lf.score - a.lf.score)
+    .slice(0, 3);
+  const failed = taken.filter((c) => !passed(c.grade));
+  return [
+    `학습 데이터: ${taken.length}과목, 이수 ${earnedCredits(taken)}학점, 평균 평점 ${gpaOf(taken) ?? "-"} / 4.5`,
+    top.length ? "들은 과목·성적으로 본 가까운 트랙:" : "들은 과목이 아직 특정 트랙과 많이 겹치지 않아요. 흥미(관심·직무·강점) 위주로 추천했어요.",
+    ...top.map((x) => `• ${x.t.name} 학습 점수 ${Math.round(x.lf.score * 100)}점 (${learnReason(x.lf) || "관련 과목"})`),
+    ...(failed.length ? [`※ 다시 들어야 할 과목: ${failed.map((c) => c.name).join(", ")} (재수강은 한 학기 3학점, 재학 중 12학점 이내)`] : []),
+    "추천 점수는 흥미 65% + 학습 35%로 계산해요.",
+  ].join("\n");
+}
+
+/** 외부 AI 챗봇에 붙여넣을 요약 (학생이 직접 복사해 사용) */
+export function aiPrompt(ctx: AdvisorContext): string {
+  const p = ctx.state.profile;
+  const entry = findEntry(p.entry);
+  const pr = pr0(ctx);
+  const taken = p.taken ?? [];
+  const goals = (p.extraThemes ?? []).map((g) => PROGRAM_THEMES.find((t) => t.id === g)?.label).filter(Boolean);
+  const now = nowIndex(p);
+  return [
+    "아래는 한성대학교 학생의 전공·학습 정보입니다. 트랙 선택과 학기별 수강 계획, 비교과 활동에 대해 조언해 주세요.",
+    "(한성대 졸업요건: 교과 130학점 = 전공 78 + 교양 31(24학번~) + 자유선택 21, 비교과 800pt, 학기당 수강 18학점)",
+    "",
+    `[기본] ${entry.name} · ${p.day} · ${String(admissionOf(p)).slice(2)}학번 · ${p.year}학년 ${p.sem}학기`,
+    `[흥미] 관심 분야: ${p.interests.join(", ") || "-"} / 희망 직무: ${p.jobs.join(", ") || "-"} / 강점: ${p.strengths.join(", ") || "-"}`,
+    taken.length
+      ? `[학습 데이터] ${taken.length}과목, 평균 평점 ${gpaOf(taken) ?? "-"}/4.5: ${taken.map((c) => `${c.name}(${c.grade})`).join(", ")}`
+      : "[학습 데이터] 아직 없음",
+    `[지금 계획] ${planTitle(ctx.plan)} (${MODE_RULES[ctx.plan.mode].name})`,
+    `[추천 조합 Top 3] ${ctx.top.map((c) => `${c.a.name} + ${c.b.name}(${toPoints(c.total)}점)`).join(" / ")}`,
+    `[진행률] ${planParts(ctx.plan).map((x) => `${x.spec.label} ${x.kind === "a" ? pr.a : pr.b}/${x.spec.total}`).join(", ")}, 교양 ${pr.liberal}, 비교과 ${pr.extraPts}/800pt`,
+    `[이번 학기 계획] ${(ctx.roadmap[now] ?? []).filter((it) => it.kind !== "x" && it.kind !== "m").map((it) => it.name).join(", ") || "-"}`,
+    `[비교과 목표] ${goals.join(", ") || "-"}`,
+    "",
+    "질문: 제 흥미와 성적을 보면 지금 계획이 적절한가요? 바꾼다면 어떤 트랙과 과목·비교과를 추천하나요?",
+  ].join("\n");
+}
 
 /** 제2트랙 없이 이수하는 방법 안내 */
 function modeAnswer(ctx: AdvisorContext): string {
@@ -267,7 +315,9 @@ export function answer(q: string, ctx: AdvisorContext): string {
     return `체크한 항목 기준으로 ${majorProgress}, 교양 ${pr.liberal}학점, 비교과 ${pr.extraPts}/${GRAD.extraPoints}pt예요.`;
   }
 
-  if (/휴학|복학|편입|전과|성적|장학/.test(q)) {
+  if (/내 ?성적|학습 ?데이터|수강한 ?과목|들은 ?과목|평점|성적표/.test(q)) return learningAnswer(ctx);
+
+  if (/휴학|복학|편입|전과|장학/.test(q)) {
     return "휴학·복학·장학 같은 학사 규정은 이 앱 데이터에 없어요. 학사운영팀 공지나 종합정보시스템에서 확인하세요. 트랙 선택·변경, 졸업요건, 학기당 수강 학점, 재수강, 비교과, 과목 개설 학기는 여기서 물어볼 수 있어요.";
   }
 

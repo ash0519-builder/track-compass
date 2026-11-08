@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { MODE_RULES } from "../data/rules";
 import { COLLEGES, findEntry, TRACKS } from "../data/tracks";
-import { comboNotes, firstCandidates, rankedTracks, reasonLines, toPoints, validCombo } from "../lib/scoring";
+import { MODULAR, modulePath } from "../data/modules";
+import { hasLearning, learnFit } from "../lib/learning";
+import { comboNotes, firstCandidates, LEARN_WEIGHT, rankedTracks, reasonLines, tagFit, toPoints, validCombo } from "../lib/scoring";
+import { Tip } from "./Tip";
 import type { Combo, MajorMode, Plan, Profile, Track } from "../types";
 import { planKey } from "../lib/plan";
 import { entryName } from "./Summary";
@@ -14,14 +17,18 @@ const DEEP = "__deep";
 
 export type OnPlan = (a: string, b: string | null, mode: MajorMode) => void;
 
-function TrackHead({ t, label, tone, score }: { t: Track; label: string; tone: string; score: number }) {
+function TrackHead({ t, label, tone, score, profile }: { t: Track; label: string; tone: string; score: number; profile: Profile }) {
+  const lf = hasLearning(profile.taken) ? learnFit(t, profile.taken) : null;
+  const path = modulePath(t.name, profile.jobs);
   return (
     <div className="tr">
       <span className={`pill ${tone}`}>{label}</span>
       <h3>{t.name}</h3>
       <small>
         {COLLEGES[t.college].name} · {t.school === t.name ? "학과" : t.school} · {t.offer === "주야" ? "주·야" : `${t.offer}만`} · 적합도 {toPoints(score)}
+        {lf ? ` (흥미 ${toPoints(tagFit(t, profile))} · 학습 ${toPoints(lf.score)})` : ""}
       </small>
+      {MODULAR[t.name] && <small className="mod">모듈형 교육과정{path ? ` · 추천 경로 '${path.label}'` : ""}</small>}
     </div>
   );
 }
@@ -131,7 +138,7 @@ export function Recommend({ profile, top, plan, onPick, onPlan }: { profile: Pro
     <section className="panel" id="p-recommend">
       <div className="panel-head">
         <div>
-          <h2>나에게 맞는 트랙 조합 Top 3</h2>
+          <h2>나에게 맞는 전공 조합 Top 3</h2>
           <p>
             {entryName(profile)} 기준입니다.{" "}
             {entry.free
@@ -148,6 +155,12 @@ export function Recommend({ profile, top, plan, onPick, onPlan }: { profile: Pro
         </div>
       </div>
 
+      <Tip>
+        {hasLearning(profile.taken)
+          ? `추천 점수 = 흥미(관심 50%·직무 30%·강점 20%) ${Math.round((1 - LEARN_WEIGHT) * 100)}% + 학습 데이터 ${Math.round(LEARN_WEIGHT * 100)}%. 학습 점수는 들은 과목이 그 트랙 교육과정에 있으면 가장 높고(전공기초·필수 가산), 같은 학부 → 같은 단과대학 → 과목명 키워드 순으로 낮아지며, 성적이 좋을수록 커져요.`
+          : "추천 점수 = 관심 분야 50% + 희망 직무 30% + 강점 20%. '진로·학습 진단'에서 들은 과목과 성적을 넣으면 학습 데이터도 35% 반영해요."}
+      </Tip>
+
       {profile.year >= 2 && <ManualPicker key={planKey(plan)} profile={profile} plan={plan} onPlan={onPlan} />}
 
       <div className="recs">
@@ -159,8 +172,8 @@ export function Recommend({ profile, top, plan, onPick, onPlan }: { profile: Pro
               <div className="rank">
                 추천 {k + 1}순위{sel ? " · 선택됨" : ""}
               </div>
-              <TrackHead t={c.a} label="1트랙" tone="" score={c.sa} />
-              <TrackHead t={c.b} label="2트랙" tone="b" score={c.sb} />
+              <TrackHead t={c.a} label="1트랙" tone="" score={c.sa} profile={profile} />
+              <TrackHead t={c.b} label="2트랙" tone="b" score={c.sb} profile={profile} />
               <div className="score">
                 <b>{toPoints(c.total)}</b>
                 <span>
@@ -192,7 +205,7 @@ export function Recommend({ profile, top, plan, onPick, onPlan }: { profile: Pro
 
       <div className="card top-list">
         <h3>트랙별 적합도 상위 8개</h3>
-        <p className="hint">적합도 = 관심 분야 일치 50% + 희망 직무 일치 30% + 강점 일치 20%. 트랙 이름을 누르면 학교 공식 교육과정 페이지가 열려요.</p>
+        <p className="hint">트랙 이름을 누르면 학교 공식 교육과정 페이지가 열려요.</p>
         <div className="scroll-x">
           <table>
             <thead>

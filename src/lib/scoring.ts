@@ -1,8 +1,11 @@
 import { findEntry, TRACKS } from "../data/tracks";
 import type { Combo, Profile, Track } from "../types";
+import { hasLearning, learnFit, learnReason } from "./learning";
 
 /** 가중치: 관심 분야 50%, 희망 직무 30%, 강점 20% */
 export const WEIGHTS = { interests: 0.5, jobs: 0.3, strengths: 0.2 } as const;
+/** 학습 데이터(들은 과목·성적)가 있으면 적합도의 35%를 학습 점수로 */
+export const LEARN_WEIGHT = 0.35;
 /** 서로 다른 단과대학 조합에 더하는 융합 가산점 */
 export const FUSION_BONUS = 0.1;
 
@@ -13,9 +16,16 @@ export function overlap(user: readonly string[], track: readonly string[]): numb
   return Math.min(1, hit / Math.min(user.length, track.length));
 }
 
-/** S(t): 트랙 적합도 (0~1) */
-export function fit(t: Track, p: Profile): number {
+/** 흥미 적합도: 관심 분야·희망 직무·강점 태그 (0~1) */
+export function tagFit(t: Track, p: Profile): number {
   return WEIGHTS.interests * overlap(p.interests, t.interests) + WEIGHTS.jobs * overlap(p.jobs, t.jobs) + WEIGHTS.strengths * overlap(p.strengths, t.strengths);
+}
+
+/** S(t): 트랙 적합도 (0~1). 학습 데이터가 있으면 흥미 65% + 학습 35% */
+export function fit(t: Track, p: Profile): number {
+  const tag = tagFit(t, p);
+  if (!hasLearning(p.taken)) return tag;
+  return (1 - LEARN_WEIGHT) * tag + LEARN_WEIGHT * (learnFit(t, p.taken)?.score ?? 0);
 }
 
 export function makeCombo(a: Track, b: Track, p: Profile): Combo {
@@ -82,7 +92,8 @@ export function reasonLines(c: Combo, p: Profile): string[] {
     if (mm.interests.length) bits.push(`관심 '${mm.interests.join("', '")}'`);
     if (mm.jobs.length) bits.push(`직무 '${mm.jobs.join("', '")}'`);
     if (mm.strengths.length) bits.push(`강점 '${mm.strengths.join("', '")}'`);
-    return `${k === 0 ? "1트랙" : "2트랙"}: ${bits.length ? bits.join(", ") + " 일치" : "일치 항목 없음, 조합 보완용"}`;
+    const learn = learnReason(learnFit(t, p.taken));
+    return `${k === 0 ? "1트랙" : "2트랙"}: ${bits.length ? bits.join(", ") + " 일치" : "흥미 일치 항목 없음"}${learn ? ` · 학습: ${learn}` : ""}`;
   });
   if (c.bonus) lines.push(`서로 다른 단과대학 조합이라 융합 가산 +${toPoints(c.bonus)}`);
   return lines;

@@ -5,6 +5,7 @@ export const SOURCES = {
   graduation: { label: "교과 및 비교과 교육과정 이수체계", url: "https://www.hansung.ac.kr/hansung/6217/subview.do" },
   trackSystem: { label: "전공트랙제도 (트랙 선택·변경)", url: "https://www.hansung.ac.kr/hansung/6213/subview.do" },
   majorCredits: { label: "전공교육과정 이수학점", url: "https://www.hansung.ac.kr/hansung/6218/subview.do" },
+  liberal: { label: "교양교육과정 (24학번 이후 최소 이수학점)", url: "https://www.hansung.ac.kr/hansung/6219/subview.do" },
   extracurricular: { label: "학생성공센터 비교과교육과정", url: "https://www.hansung.ac.kr/css/2639/subview.do" },
   hsp: { label: "HSP(High Success Project) 소개", url: "https://www.hansung.ac.kr/css/2649/subview.do" },
   certification: { label: "한성인재인증제", url: "https://www.hansung.ac.kr/css/2640/subview.do" },
@@ -100,6 +101,15 @@ export const LIBERAL_REQUIRED: { sem: number; name: string; credit: number }[] =
   { sem: 1, name: "영어커뮤니케이션(청취·회화)", credit: 2 },
   { sem: 1, name: "한성 이마기난스", credit: 3 },
 ];
+
+/** 24학번 이후 선택필수교양 배분이수 영역: 4개 영역 이상에서 1과목 이상, 총 15학점 (교양교육과정) */
+export const LIBERAL_AREAS = [
+  { name: "인문학적 상상력", hint: "인문학 과목" },
+  { name: "사회과학적 상상력", hint: "사회과학 과목" },
+  { name: "과학기술 상상력", hint: "자연과학·공학 과목" },
+  { name: "예술과 스포츠 상상력", hint: "예술·체육 과목" },
+  { name: "융합적 상상력", hint: "융합교양 과목" },
+] as const;
 
 /** 상상력인재학부 2025학번 이후: 한성 이마기난스 대신 AI+X 전공탐색 */
 export const IMAGINANCE_FREE_ALT = "AI+X 전공탐색";

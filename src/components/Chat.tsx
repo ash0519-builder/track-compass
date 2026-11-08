@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { answer, SUGGESTIONS, type AdvisorContext } from "../lib/advisor";
+import { aiPrompt, answer, SUGGESTIONS, type AdvisorContext } from "../lib/advisor";
+import { Tip } from "./Tip";
 import { planTitle } from "../lib/plan";
 
 interface Msg {
@@ -14,6 +15,8 @@ export function Chat({ ctx }: { ctx: AdvisorContext }) {
     { who: "bot", text: answer("이번 학기에 뭐 해야 해?", ctx) },
   ]);
   const [input, setInput] = useState("");
+  const [summary, setSummary] = useState("");
+  const [copied, setCopied] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -36,8 +39,8 @@ export function Chat({ ctx }: { ctx: AdvisorContext }) {
     <section className="panel" id="p-chat">
       <div className="panel-head">
         <div>
-          <h2>AI 상담</h2>
-          <p>한성대 공식 교육과정·학사 제도 데이터와 내 로드맵을 근거로 답해요. 트랙 변경이나 신청 일정은 학사 공지로 한 번 더 확인하세요.</p>
+          <h2>상담</h2>
+          <p>질문을 규칙(정규식)으로 알아듣고, 한성대 공식 교육과정·학사 제도 데이터와 내 로드맵을 근거로 답해요. 같은 질문에는 늘 같은 답을 하고, 입력한 정보는 밖으로 보내지 않아요.</p>
         </div>
       </div>
       <div className="chat card">
@@ -66,6 +69,54 @@ export function Chat({ ctx }: { ctx: AdvisorContext }) {
           </button>
         </form>
       </div>
+
+      <div className="card ai-copy">
+        <h3>더 자유롭게 물어보고 싶다면: AI 챗봇용 요약</h3>
+        <Tip>내 진단 결과·학습 데이터·로드맵을 한 번에 정리한 글이에요. 복사해서 쓰고 싶은 AI 챗봇에 붙여넣으면 돼요. 성적이 들어 있으니 붙여넣기 전에 내용을 확인하세요.</Tip>
+        {!summary ? (
+          <button type="button" className="btn ghost" id="makePrompt" onClick={() => setSummary(aiPrompt(ctx))}>
+            요약 만들기
+          </button>
+        ) : (
+          <>
+            <textarea id="aiPrompt" readOnly rows={10} value={summary} onFocus={(e) => e.currentTarget.select()} />
+            <div className="learn-actions">
+              <button
+                type="button"
+                className="btn"
+                id="copyPrompt"
+                onClick={() => {
+                  const done = () => setCopied(true);
+                  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(summary).then(done, () => fallbackCopy(summary) && done());
+                  else if (fallbackCopy(summary)) done();
+                }}
+              >
+                복사하기
+              </button>
+              {copied && (
+                <span className="hint" role="status">
+                  복사했어요.
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </section>
   );
+}
+
+function fallbackCopy(text: string): boolean {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  ta.remove();
+  return ok;
 }

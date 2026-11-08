@@ -4,11 +4,14 @@ import { ENTRIES, findEntry, TAG_LABELS, TAG_LIMITS, TAGS, type TagGroup } from 
 import { admissionOf } from "../lib/roadmap";
 import { THEMES } from "../lib/programs";
 import type { DayNight, Profile } from "../types";
+import { LearningInput } from "./LearningInput";
+import { Tip } from "./Tip";
 
 const GROUPS: TagGroup[] = ["interests", "jobs", "strengths"];
 
-export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p: Profile) => void }) {
-  const [draft, setDraft] = useState<Profile>({ ...profile, admission: admissionOf(profile) });
+export function Diagnose({ profile, sample = false, onSubmit }: { profile: Profile; sample?: boolean; onSubmit: (p: Profile) => void }) {
+  // 예시 학생의 학습 데이터는 내 진단으로 넘어오지 않게 비워 둔다
+  const [draft, setDraft] = useState<Profile>({ ...profile, admission: admissionOf(profile), taken: sample ? [] : profile.taken });
   const [warn, setWarn] = useState("");
   const ok = draft.interests.length > 0 && draft.jobs.length > 0;
   const entry = findEntry(draft.entry);
@@ -42,10 +45,11 @@ export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p
     <section className="panel" id="p-diagnose">
       <div className="panel-head">
         <div>
-          <h2>나에 대해 알려주세요</h2>
-          <p>제1트랙은 입학한 모집단위 안에서 골라야 해서, 모집단위와 주·야를 먼저 정확히 골라주세요.</p>
+          <h2>진로·학습 진단</h2>
+          <p>흥미(관심 분야·희망 직무·강점)와 학습 데이터(들은 과목·성적)로 맞춤 전공을 추천해요. 제1트랙은 입학한 모집단위 안에서 골라야 해서 모집단위와 주·야를 먼저 정확히 골라주세요.</p>
         </div>
       </div>
+      <Tip>1학년 1학기라 들은 과목이 없으면 흥미만으로 추천해요. 성적을 넣으면 들은 과목이 많은 트랙, 성적이 좋은 과목의 트랙에 점수를 더 줘요.</Tip>
       <form className="form-grid" onSubmit={submit}>
         <div className="row4">
           <label className="f" htmlFor="entry">
@@ -126,6 +130,8 @@ export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p
           </fieldset>
         ))}
 
+        <LearningInput draft={draft} setDraft={setDraft} />
+
         <fieldset>
           <legend>
             비교과로 키우고 싶은 분야<small>선택 · 최대 3개</small>
@@ -152,7 +158,7 @@ export function Diagnose({ profile, onSubmit }: { profile: Profile; onSubmit: (p
 
         <div className="actions">
           <button type="submit" className="btn" id="diagSubmit" disabled={!ok}>
-            추천 받기
+            {draft.taken?.length ? "학습 데이터와 함께 추천 받기" : "추천 받기"}
           </button>
           <span className="hint" role="status">
             {warn || (ok ? `선택: 관심 ${draft.interests.length} · 직무 ${draft.jobs.length} · 강점 ${draft.strengths.length}` : "관심 분야와 희망 직무를 하나 이상 골라주세요.")}

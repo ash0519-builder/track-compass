@@ -1,4 +1,5 @@
-import { GRAD, MODE_RULES, RENAMES_2027, SOURCES, TRACK_RULES } from "../data/rules";
+import { MODULAR, MODULES_SOURCE } from "../data/modules";
+import { GRAD, LIBERAL_AREAS, LIBERAL_REQUIRED, MODE_RULES, RENAMES_2027, SOURCES, TRACK_RULES } from "../data/rules";
 
 export function Rules() {
   return (
@@ -70,6 +71,32 @@ export function Rules() {
           <p className="src">
             출처: <a href={SOURCES.extracurricular.url}>{SOURCES.extracurricular.label}</a> · <a href={SOURCES.hsp.url}>{SOURCES.hsp.label}</a> ·{" "}
             <a href={SOURCES.certification.url}>{SOURCES.certification.label}</a>
+          </p>
+        </div>
+
+        <div className="card">
+          <h3>교양 (24학번 이후 31학점)</h3>
+          <ul>
+            <li>교양필수 13학점: {LIBERAL_REQUIRED.map((x) => x.name).join(", ")} (1학년 필수)</li>
+            <li>
+              선택필수교양 15학점: 배분이수 영역 {LIBERAL_AREAS.length}개({LIBERAL_AREAS.map((a) => a.name).join(", ")}) 중 4개 영역 이상에서 1과목 이상
+            </li>
+            <li>자율선택 3학점 이상 · 19~23학번 28학점, 17~18학번 22학점</li>
+          </ul>
+          <p className="src">
+            출처: <a href={SOURCES.liberal.url}>{SOURCES.liberal.label}</a>
+          </p>
+        </div>
+
+        <div className="card">
+          <h3>모듈형 전공교육과정 (2026 시범)</h3>
+          <ul>
+            <li>전공 과목을 역량 단위 '모듈'(4과목 내외)로 묶고, 진로에 맞는 모듈을 조합해 듣는 방식이에요.</li>
+            <li>시범 트랙: {Object.keys(MODULAR).join(", ")}</li>
+            <li>모듈 과목을 모두 들을 필요는 없고 졸업요건은 같아요. 로드맵은 고른 진로 경로의 모듈 과목을 전공선택에 먼저 넣어요.</li>
+          </ul>
+          <p className="src">
+            출처: <a href={MODULES_SOURCE.url}>{MODULES_SOURCE.label}</a>
           </p>
         </div>
 

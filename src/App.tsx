@@ -1,24 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { Chat } from "./components/Chat";
 import { Diagnose } from "./components/Diagnose";
-import { Programs } from "./components/Programs";
+import { ExtraRoadmap } from "./components/ExtraRoadmap";
 import { Recommend } from "./components/Recommend";
-import { RoadmapView } from "./components/RoadmapView";
+import { RoadmapView, type EditApi } from "./components/RoadmapView";
 import { Rules } from "./components/Rules";
 import { Summary } from "./components/Summary";
 import { ENTRIES } from "./data/tracks";
 import { planKey, planOf, planTracks, resolvePlan } from "./lib/plan";
-import { buildRoadmap, checksBefore, nowIndex, progress } from "./lib/roadmap";
+import { buildRoadmap, checksBefore, nowIndex, outsideCredits, progress, transcriptChecks } from "./lib/roadmap";
 import { recommendPrograms } from "./lib/programs";
 import { combos } from "./lib/scoring";
 import { clearState, loadState, sanitizeState, saveState } from "./lib/storage";
-import type { AppState, Combo, MajorMode, Profile } from "./types";
+import type { AppState, Combo, Edits, MajorMode, Profile } from "./types";
 
 const TABS = [
-  { id: "diagnose", label: "진로 진단" },
-  { id: "recommend", label: "트랙 추천" },
-  { id: "roadmap", label: "학기별 로드맵" },
-  { id: "programs", label: "비교과 추천" },
+  { id: "diagnose", label: "진로·학습 진단" },
+  { id: "recommend", label: "전공 추천" },
+  { id: "roadmap", label: "교과 로드맵" },
+  { id: "programs", label: "비교과 로드맵" },
   { id: "chat", label: "상담" },
   { id: "rules", label: "졸업요건·제도" },
 ] as const;
@@ -34,6 +34,11 @@ export const SAMPLE_PROFILE: Profile = {
   jobs: ["데이터분석가", "마케터"],
   strengths: ["분석·조사", "창의·표현"],
   extraThemes: ["english", "ai"],
+  taken: [
+    { name: "사고와 표현", grade: "A0" },
+    { name: "영어커뮤니케이션(독해·작문)", grade: "B+" },
+    { name: "AI와 SW 기초", grade: "A+" },
+  ],
 };
 
 function sampleState(): AppState {
@@ -78,11 +83,19 @@ export default function App() {
   const now = nowIndex(state.profile);
   const recs = useMemo(() => recommendPrograms(state.profile, planTracks(plan)), [state.profile, plan]);
   const picks = useMemo(() => state.extraPicks ?? {}, [state.extraPicks]);
+  const edits = useMemo(() => state.edits ?? {}, [state.edits]);
+  const paths = useMemo(() => state.paths ?? {}, [state.paths]);
+  // 학습 데이터(성적)로 이수한 과목은 자동 체크 (학생이 해제한 것은 제외)
+  const base = useMemo(() => buildRoadmap(plan, state.profile, { picks, recs, now, edits, paths }), [plan, state.profile, picks, recs, now, edits, paths]);
+  const auto = useMemo(() => transcriptChecks(base, state.profile.taken, state.offs), [base, state.profile.taken, state.offs]);
+  const checks = useMemo(() => ({ ...auto, ...state.checks }), [auto, state.checks]);
   const roadmap = useMemo(
-    () => buildRoadmap(plan, state.profile, { picks, recs, now, checks: state.checks }),
-    [plan, state.profile, picks, recs, now, state.checks],
+    () => buildRoadmap(plan, state.profile, { picks, recs, now, checks, edits, paths }),
+    [plan, state.profile, picks, recs, now, checks, edits, paths],
   );
-  const prog = progress(roadmap, state.checks, state.myPoints);
+  const prog = progress(roadmap, checks, state.myPoints);
+  const outside = outsideCredits(roadmap, state.profile.taken);
+  const checkedPickPts = roadmap.flat().filter((it) => it.programId && picks[String(it.programId)] !== undefined && checks[it.id]).reduce((s, it) => s + it.unit, 0);
 
   const go = (t: TabId) => {
     window.location.hash = t;
@@ -109,6 +122,40 @@ export default function App() {
   function markPast() {
     setState({ ...state, checks: checksBefore(roadmap, now, state.checks), sample: false });
   }
+
+  const setEdits = (next: Edits) => setState({ ...state, edits: next, sample: false });
+  const api: EditApi = {
+    edits,
+    auto,
+    paths,
+    jobs: state.profile.jobs,
+    onMove: (id, sem) => setEdits({ ...edits, moves: { ...edits.moves, [id]: sem } }),
+    onUnmove: (id) => {
+      const moves = { ...edits.moves };
+      delete moves[id];
+      setEdits({ ...edits, moves });
+    },
+    onSwap: (kind, from, to) => {
+      const k = (n: string) => `${kind}:${n}`;
+      setEdits({
+        ...edits,
+        drops: [...new Set([...(edits.drops ?? []).filter((x) => x !== k(to)), k(from)])],
+        pins: [...new Set([...(edits.pins ?? []).filter((x) => x !== k(from)), k(to)])],
+      });
+    },
+    onRename: (id, name) => {
+      const renames = { ...edits.renames };
+      if (name) renames[id] = name.slice(0, 40);
+      else delete renames[id];
+      setEdits({ ...edits, renames });
+    },
+    onAdd: (item) => setEdits({ ...edits, custom: [...(edits.custom ?? []), { ...item, id: `c:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}` }].slice(-60) }),
+    onRemove: (id) => setEdits({ ...edits, custom: (edits.custom ?? []).filter((c) => c.id !== id) }),
+    onReset: () => {
+      if (window.confirm("교과 로드맵에서 직접 옮기고 바꾸고 추가한 내용을 모두 되돌릴까요?")) setEdits({});
+    },
+    onPath: (track, label) => setState({ ...state, paths: { ...paths, [track]: label }, sample: false }),
+  };
 
   function exportPlan() {
     const blob = new Blob([JSON.stringify({ app: "track-compass", version: 3, savedAt: new Date().toISOString(), state }, null, 2)], { type: "application/json" });
@@ -146,10 +193,16 @@ export default function App() {
   }
 
   function toggle(id: string, on: boolean) {
-    const checks = { ...state.checks };
-    if (on) checks[id] = true;
-    else delete checks[id];
-    setState({ ...state, checks, sample: false });
+    const next = { ...state.checks };
+    const offs = { ...state.offs };
+    if (on) {
+      next[id] = true;
+      delete offs[id];
+    } else {
+      delete next[id];
+      if (auto[id]) offs[id] = true;
+    }
+    setState({ ...state, checks: next, offs, sample: false });
   }
 
   function reset() {
@@ -177,7 +230,7 @@ export default function App() {
       </header>
 
       <div className="wrap">
-        <Summary plan={plan} profile={state.profile} prog={prog} roadmap={roadmap} />
+        <Summary plan={plan} profile={state.profile} prog={prog} roadmap={roadmap} outside={outside} />
 
         <nav className="tabs" aria-label="단계">
           {TABS.map((t, k) => (
@@ -189,13 +242,14 @@ export default function App() {
         </nav>
 
         <main>
-          {tab === "diagnose" && <Diagnose key={JSON.stringify(state.profile)} profile={state.profile} onSubmit={submitProfile} />}
+          {tab === "diagnose" && <Diagnose key={JSON.stringify(state.profile) + state.sample} profile={state.profile} sample={state.sample} onSubmit={submitProfile} />}
           {tab === "recommend" && <Recommend profile={state.profile} top={top} plan={plan} onPick={choose} onPlan={choosePlan} />}
           {tab === "roadmap" && (
             <RoadmapView
+              api={api}
               plan={plan}
               roadmap={roadmap}
-              checks={state.checks}
+              checks={checks}
               now={now}
               myPoints={state.myPoints}
               onToggle={toggle}
@@ -206,11 +260,13 @@ export default function App() {
             />
           )}
           {tab === "programs" && (
-            <Programs
+            <ExtraRoadmap
               profile={state.profile}
               recs={recs}
               picks={picks}
               now={now}
+              points={prog.extraPts}
+              checkedPts={checkedPickPts}
               onPick={(id, sem) => setState({ ...state, extraPicks: { ...picks, [String(id)]: sem }, sample: false })}
               onUnpick={(id) => {
                 const next = { ...picks };
@@ -220,7 +276,7 @@ export default function App() {
               onThemes={(themes) => setState({ ...state, profile: { ...state.profile, extraThemes: themes }, sample: false })}
             />
           )}
-          {tab === "chat" && <Chat key={planKey(plan)} ctx={{ state, plan, top, roadmap, recs }} />}
+          {tab === "chat" && <Chat key={planKey(plan)} ctx={{ state: { ...state, checks }, plan, top, roadmap, recs }} />}
           {tab === "rules" && <Rules />}
 
           <footer className="note">

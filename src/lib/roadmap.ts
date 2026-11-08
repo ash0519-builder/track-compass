@@ -1,8 +1,11 @@
-import { CURRENT_YEAR, EXTRA_PLAN, GRAD, IMAGINANCE_FREE_ALT, LIBERAL_REQUIRED, liberalTotal, MODE_RULES, type MajorSpec } from "../data/rules";
+import { CURRENT_YEAR, EXTRA_PLAN, GRAD, IMAGINANCE_FREE_ALT, LIBERAL_AREAS, LIBERAL_REQUIRED, liberalTotal, MODE_RULES, type MajorSpec } from "../data/rules";
 import { findEntry, SEM_NAMES } from "../data/tracks";
-import { cleanProgramName, findProgram, type Scored } from "./programs";
-import type { AppState, Course, ItemKind, Plan, PlanItem, Profile, Roadmap, Track } from "../types";
+import { cleanProgramName, familyName, findProgram, type Scored } from "./programs";
+import { moduleOf, modulePath, pathCourses } from "../data/modules";
+import type { AppState, Course, Edits, ItemKind, Plan, PlanItem, Profile, Roadmap, TakenCourse, Track } from "../types";
+import { lookupCourse, passed } from "./learning";
 import { planParts } from "./plan";
+import { normName } from "./text";
 
 const REQ_LABEL = { 기: "전공기초", 필: "전공필수", 선: "전공선택" } as const;
 
@@ -24,7 +27,18 @@ const TRACK_SPEC: MajorSpec = MODE_RULES.fusion1.a;
  * 전공기초·전공필수는 모두 넣고(부전공은 전공필수를 spec.req학점만), 전공선택은 학기별로 고르게 골라 채운다.
  * 다른 트랙에서 이미 넣은 과목은 학점을 한 번만 인정하므로 0학점으로 표시하고 전공선택을 더 넣는다.
  */
-export function planTrack(t: Track, taken: Set<string>, basicSem: number, spec: MajorSpec = TRACK_SPEC): TrackPlan {
+export interface TrackPick {
+  /** 먼저 넣을 전공선택 (정규화한 과목명), 앞 묶음부터: 이미 들은 과목 → 진로 모듈 과목 */
+  prefer?: Set<string>[];
+  /** 학생이 직접 넣은 전공선택 (학점이 넘어도 넣음) */
+  pins?: Set<string>;
+  /** 학생이 뺀 전공선택 */
+  drops?: Set<string>;
+  /** 다른 전공의 전공기초·전공필수라 여기서는 전공선택으로 고르지 않을 과목 (이미 들었거나 직접 넣은 것은 예외) */
+  avoid?: Set<string>;
+}
+
+export function planTrack(t: Track, taken: Set<string>, basicSem: number, spec: MajorSpec = TRACK_SPEC, pick: TrackPick = {}): TrackPlan {
   const items: TrackPlan["items"] = [];
   let credits = 0;
   let reqCredits = 0;
@@ -43,8 +57,21 @@ export function planTrack(t: Track, taken: Set<string>, basicSem: number, spec: 
     add(c, c.sem);
   }
 
-  // 전공선택: 2학년 이후 학기부터 학기마다 한 과목씩 돌아가며 고른다
-  const pool = t.courses.filter((c) => c.req === "선" && !taken.has(c.name) && !items.some((i) => i.course.name === c.name));
+  // 전공선택: 학생이 넣은 과목 → 이미 들은 과목·진로 모듈 과목 → 2학년 이후 학기부터 학기마다 한 과목씩 돌아가며
+  let pool = t.courses.filter(
+    (c) => c.req === "선" && !taken.has(c.name) && !items.some((i) => i.course.name === c.name) && !pick.drops?.has(normName(c.name)),
+  );
+  const take = (c: Course) => {
+    add(c, c.sem);
+    pool = pool.filter((x) => x !== c);
+  };
+  for (const c of pool.filter((c) => pick.pins?.has(normName(c.name)))) take(c);
+  for (const [k, set] of (pick.prefer ?? []).entries())
+    for (const c of pool.filter((c) => set.has(normName(c.name)) && (k === 0 || !pick.avoid?.has(normName(c.name))))) {
+      if (credits >= spec.total) break;
+      take(c);
+    }
+  pool = pool.filter((c) => !pick.avoid?.has(normName(c.name)));
   const order = [2, 3, 4, 5, 6, 7, 1, 0];
   const bySem = new Map(order.map((s) => [s, pool.filter((c) => c.sem === s)]));
   while (credits < spec.total) {
@@ -73,6 +100,10 @@ export interface ExtraOptions {
   perSemester?: number;
   /** 체크 상태. 주면 지난 학기 미이수 필수 과목을 이번·다음 학기로 다시 넣는다 */
   checks?: AppState["checks"];
+  /** 학생이 직접 수정한 내용 */
+  edits?: Edits;
+  /** 모듈형 트랙 진로 경로 선택 */
+  paths?: Record<string, string>;
 }
 
 export const admissionOf = (p: Profile) => p.admission ?? CURRENT_YEAR - (p.year - 1);
@@ -88,7 +119,7 @@ function liberalItems(p: Profile): { sem: number; name: string; credit: number; 
       credit: g.credit,
       sub: "교양필수",
     }));
-    const dist = [0, 1, 2, 3, 4].map((s, k) => ({ sem: s, name: `선택필수교양 ${k + 1}`, credit: 3, sub: "배분이수 영역 4개 이상에서 선택" }));
+    const dist = LIBERAL_AREAS.map((a, k) => ({ sem: k, name: `선택필수교양(${a.name})`, credit: 3, sub: `선택필수교양 · ${a.hint} · 4개 영역 이상, 15학점` }));
     return [...req, ...dist, { sem: 5, name: "자율 교양", credit: 3, sub: "교양 자율선택" }];
   }
   // 23학번 이전: 교양필수 과목이 학번마다 달라 학점 묶음으로만 계획
@@ -97,7 +128,7 @@ function liberalItems(p: Profile): { sem: number; name: string; credit: number; 
   return per.map((credit, k) => ({ sem: k, name: `교양 ${k + 1} (${credit}학점)`, credit, sub: `${adm}학번 교양필수·선택 (학업이수가이드 확인)` }));
 }
 
-const CREDIT_KINDS: ItemKind[] = ["a", "b", "g"];
+const CREDIT_KINDS: ItemKind[] = ["a", "b", "g", "f"];
 
 /** 한 학기의 교과 학점 합계 */
 export const semesterCredits = (items: PlanItem[]) => items.reduce((s, it) => s + (CREDIT_KINDS.includes(it.kind) ? it.unit : 0), 0);
@@ -185,10 +216,48 @@ export function normalizeChecks(checks: AppState["checks"] | undefined): AppStat
   for (const [k, v] of Object.entries(checks ?? {})) {
     if (!v) continue;
     const block = /^s(\d+):g:교양 (\d+)학점$/.exec(k);
-    const key = block ? `g:교양 ${Number(block[1]) + 1} (${block[2]}학점)` : k.replace(/^(carry:)?s\d+:/, "$1");
+    let key = block ? `g:교양 ${Number(block[1]) + 1} (${block[2]}학점)` : k.replace(/^(carry:)?s\d+:/, "$1");
+    const dist = /^(carry:)?g:선택필수교양 (\d)$/.exec(key);
+    if (dist && LIBERAL_AREAS[Number(dist[2]) - 1]) key = `${dist[1] ?? ""}g:선택필수교양(${LIBERAL_AREAS[Number(dist[2]) - 1].name})`;
     out[key] = true;
   }
   return out;
+}
+
+const KIND_LABEL: Record<"a" | "b" | "g" | "f", string> = { a: "1트랙", b: "2트랙", g: "교양", f: "자유선택(일반선택)" };
+
+/** 학생이 직접 고친 내용 반영: 교양 자리 과목명 → 학기 옮기기 → 과목 추가 */
+function applyEdits(sems: PlanItem[][], edits: Edits, plan: Plan) {
+  const renames = edits.renames ?? {};
+  for (const items of sems)
+    for (const it of items) {
+      const nm = renames[it.id]?.trim();
+      if (it.kind === "g" && nm && !it.carryOf) {
+        it.sub = `${it.name} 자리 · ${it.sub}`;
+        it.name = nm;
+      }
+    }
+  for (const [id, to] of Object.entries(edits.moves ?? {})) {
+    const from = sems.findIndex((items) => items.some((it) => it.id === id));
+    const t = Math.min(7, Math.max(0, Math.round(to)));
+    if (from < 0 || from === t) continue;
+    const it = sems[from].find((x) => x.id === id)!;
+    sems[from] = sems[from].filter((x) => x !== it);
+    const parityNote = (it.kind === "a" || it.kind === "b") && from % 2 !== t % 2 ? " · 개설 학기(1·2학기) 확인" : "";
+    sems[t].push({ ...it, manual: "moved", sub: `${it.sub} · 직접 옮김(${SEM_NAMES[from]}에서)${parityNote}` });
+  }
+  for (const c of edits.custom ?? []) {
+    const t = Math.min(7, Math.max(0, Math.round(c.sem)));
+    const track = c.kind === "a" ? plan.a.name : c.kind === "b" ? plan.b?.name : null;
+    sems[t].push({
+      id: c.id,
+      kind: c.kind,
+      name: c.name,
+      unit: c.credit,
+      sub: `${track ? `${track} · ` : ""}${KIND_LABEL[c.kind]} · 직접 추가`,
+      manual: "custom",
+    });
+  }
 }
 
 export function buildRoadmap(plan: Plan, p: Profile, opts: ExtraOptions = {}): Roadmap {
@@ -209,19 +278,48 @@ export function buildRoadmap(plan: Plan, p: Profile, opts: ExtraOptions = {}): R
   for (const g of liberalItems(p)) push(g.sem, "g", g.name, g.credit, g.sub);
 
   // 제1트랙(학과) → 제2트랙(부전공) 순서로 과목 배치
-  const taken = new Set<string>();
-  for (const part of planParts(plan)) {
-    const tp = planTrack(part.t, taken, part.kind === "a" ? 0 : 1, part.spec);
-    tp.items.forEach((i) => taken.add(i.course.name));
+  const placed = new Set<string>();
+  const done = new Set((p.taken ?? []).filter((c) => passed(c.grade)).map((c) => normName(c.name)));
+  const edits = opts.edits ?? {};
+  const keysOf = (list: string[] | undefined, kind: string) =>
+    new Set((list ?? []).filter((k) => k.startsWith(`${kind}:`)).map((k) => normName(k.slice(kind.length + 1))));
+  const parts = planParts(plan);
+  const firstNames = new Map<string, PlanItem>();
+  for (const part of parts) {
     const t = part.t;
+    const path = modulePath(t.name, p.jobs, opts.paths?.[t.name]);
+    // 다른 전공의 기초·필수 과목은 여기서 전공선택으로 먼저 가져가지 않는다 (같은 과목은 학점 1회 인정이라 손해)
+    const others = parts.filter((x) => x !== part).flatMap((x) => x.t.courses.filter((c) => c.req !== "선").map((c) => normName(c.name)));
+    const tp = planTrack(t, placed, part.kind === "a" ? 0 : 1, part.spec, {
+      prefer: [done, pathCourses(t.name, path)],
+      pins: keysOf(edits.pins, part.kind),
+      drops: keysOf(edits.drops, part.kind),
+      avoid: new Set(others),
+    });
+    tp.items.forEach((i) => placed.add(i.course.name));
     for (const { course, sem, shared } of tp.items) {
+      // 앞 전공과 같은 과목은 한 번만 보여 주고, 앞 항목에 두 전공 공통이라고 적는다
+      const same = shared ? firstNames.get(course.name) : undefined;
+      if (same) {
+        same.sub += ` · ${t.name} ${REQ_LABEL[course.req]}과 같은 과목(학점 1회 인정)`;
+        continue;
+      }
+      const module = moduleOf(t.name, course.name) ?? undefined;
       const tags = [
         part.spec.label === "부전공" ? `부전공 ${REQ_LABEL[course.req]}` : REQ_LABEL[course.req],
+        module ?? "",
         course.req === "기" && t.prerequisite ? "트랙 선택 조건: 성취 기준(B0 이상) 충족" : "",
         course.seasonal ? "계절학기" : "",
         shared ? "다른 트랙과 같은 과목: 학점 1회 인정" : "",
       ].filter(Boolean);
-      push(sem, part.kind, course.name, shared ? 0 : course.credit, `${t.name} · ${tags.join(" · ")}`, { req: course.req, unitLabel: shared ? "중복" : undefined });
+      push(sem, part.kind, course.name, shared ? 0 : course.credit, `${t.name} · ${tags.join(" · ")}`, {
+        req: course.req,
+        unitLabel: shared ? "중복" : undefined,
+        module,
+      });
+      const row = sems[Math.min(7, Math.max(0, sem))];
+      const last = row[row.length - 1];
+      if (part.kind === "a") firstNames.set(course.name, last);
     }
   }
 
@@ -278,6 +376,8 @@ export function buildRoadmap(plan: Plan, p: Profile, opts: ExtraOptions = {}): R
     for (const it of items)
       if (it.movedFrom !== undefined && (it.kind === "a" || it.kind === "b")) it.sub += ` · 학점 분산 배치(교육과정상 ${SEM_NAMES[it.movedFrom]})`;
 
+  applyEdits(sems, edits, plan);
+
   // 비교과: 학교 공통 일정
   for (const x of EXTRA_PLAN) push(x.sem, "x", x.name, x.pts, x.sub, { unitLabel: x.pts ? undefined : x.label });
 
@@ -290,7 +390,7 @@ export function buildRoadmap(plan: Plan, p: Profile, opts: ExtraOptions = {}): R
     const prog = findProgram(Number(id));
     if (!prog) continue;
     used.add(prog.id);
-    usedNames.add(cleanProgramName(prog.t));
+    usedNames.add(familyName(prog.t));
     push(sem, "x", prog.t, prog.p, `${prog.o} · ${prog.c2}`, { programId: prog.id, unitLabel: prog.p ? undefined : "공지 확인" });
   }
 
@@ -302,8 +402,8 @@ export function buildRoadmap(plan: Plan, p: Profile, opts: ExtraOptions = {}): R
     const next = () => {
       while (queue.length) {
         const r = queue.shift()!;
-        const nm = cleanProgramName(r.p.t);
-        if (usedNames.has(nm)) continue;
+        const nm = familyName(r.p.t);
+        if (usedNames.has(nm) || !r.eligible) continue;
         usedNames.add(nm);
         return r;
       }
@@ -320,7 +420,7 @@ export function buildRoadmap(plan: Plan, p: Profile, opts: ExtraOptions = {}): R
     }
   }
 
-  const order: Record<ItemKind, number> = { m: 0, a: 1, b: 2, g: 3, x: 4 };
+  const order: Record<ItemKind, number> = { m: 0, a: 1, b: 2, g: 3, f: 4, x: 5 };
   return sems.map((items) => items.sort((m, n) => order[m.kind] - order[n.kind] || Number(!!m.carryOf) - Number(!!n.carryOf)));
 }
 
@@ -335,6 +435,8 @@ export interface Progress {
   a: number;
   b: number;
   liberal: number;
+  /** 자유선택(직접 추가한 일반선택 과목) */
+  free: number;
   /** 로드맵에서 체크한 비교과 포인트 */
   plannedPts: number;
   /** 대시보드에 보여줄 포인트 (직접 입력값 우선) */
@@ -342,12 +444,13 @@ export interface Progress {
 }
 
 export function progress(rm: Roadmap, checks: AppState["checks"], myPoints: number | null = null): Progress {
-  const r: Progress = { a: 0, b: 0, liberal: 0, plannedPts: 0, extraPts: 0 };
+  const r: Progress = { a: 0, b: 0, liberal: 0, free: 0, plannedPts: 0, extraPts: 0 };
   for (const it of rm.flat()) {
     if (!checks[it.id]) continue;
     if (it.kind === "a") r.a += it.unit;
     if (it.kind === "b") r.b += it.unit;
     if (it.kind === "g") r.liberal += it.unit;
+    if (it.kind === "f") r.free += it.unit;
     if (it.kind === "x") r.plannedPts += it.unit;
   }
   r.extraPts = myPoints ?? r.plannedPts;
@@ -379,4 +482,26 @@ export function pastReviewed(rm: Roadmap, now: number, checks: AppState["checks"
 /** 지난 학기에서 체크하지 않은 항목 수 */
 export function pastUnchecked(rm: Roadmap, now: number, checks: AppState["checks"]): number {
   return rm.slice(0, now).flat().filter((it) => !it.carryOf && it.kind !== "x" && it.kind !== "m" && !checks[it.id]).length;
+}
+
+/**
+ * 학습 데이터(성적)로 이수 처리할 항목: 로드맵 과목명과 이수(F·NP 아님)한 과목명이 같으면 체크.
+ * 학생이 해제한 항목(offs)은 빼고, 다시 넣은 과목(carry)은 건드리지 않는다.
+ */
+export function transcriptChecks(rm: Roadmap, taken: readonly TakenCourse[] | undefined, offs: AppState["offs"] = {}): AppState["checks"] {
+  const out: AppState["checks"] = {};
+  if (!taken?.length) return out;
+  const done = new Set(taken.filter((c) => passed(c.grade)).map((c) => normName(c.name)));
+  for (const it of rm.flat())
+    if (CREDIT_KINDS.includes(it.kind) && !it.carryOf && !offs[it.id] && done.has(normName(it.name))) out[it.id] = true;
+  return out;
+}
+
+/** 로드맵 밖에서 이수한 과목 학점 (교양필수 제외) → 자유선택으로 인정 */
+export function outsideCredits(rm: Roadmap, taken: readonly TakenCourse[] | undefined): { name: string; credit: number }[] {
+  if (!taken?.length) return [];
+  const inPlan = new Set(rm.flat().filter((it) => CREDIT_KINDS.includes(it.kind)).map((it) => normName(it.name)));
+  return taken
+    .filter((c) => passed(c.grade) && !inPlan.has(normName(c.name)) && !lookupCourse(c.name)?.liberal)
+    .map((c) => ({ name: c.name, credit: c.credit ?? lookupCourse(c.name)?.offers[0]?.credit ?? 3 }));
 }
